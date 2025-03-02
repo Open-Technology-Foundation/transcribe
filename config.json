@@ -1,0 +1,30 @@
+{
+  "openai": {
+    "models": {
+      "transcription": "whisper-1",
+      "completion": "gpt-4o",
+      "summary": "gpt-4o-mini"
+    }
+  },
+  "transcription": {
+    "chunk_length_ms": 600000,
+    "temperature": 0.05,
+    "parallel": true,
+    "max_workers": 4
+  },
+  "processing": {
+    "max_chunk_size": 3000,
+    "temperature": 0.1,
+    "max_tokens": 4096,
+    "post_processing": true
+  },
+  "output": {
+    "save_raw": true,
+    "create_paragraphs": true,
+    "min_sentences_per_paragraph": 2,
+    "max_sentences_per_paragraph": 8
+  },
+  "system": {
+    "log_level": "INFO"
+  }
+}

@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+
+declare PRG0=$(readlink -fn -- "$0")
+declare PRGDIR=$(dirname "$PRG0")
+    
+# Activate virtual environment if it exists
+if [[ -f "$PRGDIR"/.venv/bin/activate ]]; then
+  source "$PRGDIR"/.venv/bin/activate
+fi
+
+# Source environment variables if .env exists
+if [[ -f "$PRGDIR"/.env ]]; then
+  source "$PRGDIR"/.env
+fi
+
+# Execute the Python script with all arguments
+python3 "$PRGDIR"/transcribe.py "$@"
+
+#fin

@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+
+declare PRG0=$(readlink -fn -- "$0")
+declare PRGDIR=$(dirname "$PRG0")
+    
+# Activate virtual environment if it exists
+if [[ -f "$PRGDIR"/.venv/bin/activate ]]; then
+  source "$PRGDIR"/.venv/bin/activate
+fi
+
+# Source environment variables if .env exists
+if [[ -f "$PRGDIR"/.env ]]; then
+  source "$PRGDIR"/.env
+fi
+
+# Check if running in development mode or installed mode
+if [[ -f "$PRGDIR"/transcribe_pkg/main.py ]]; then
+  # Development mode - run directly from source
+  PYTHONPATH="$PRGDIR" python3 -c "from transcribe_pkg.main import create_sentences_main; create_sentences_main()" "$@"
+else
+  # Installed mode - run from path
+  create-sentences "$@"
+fi
+
+#fin
