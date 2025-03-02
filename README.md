@@ -92,28 +92,28 @@ sudo ln -sf /usr/share/transcribe/create-sentences /usr/local/bin/create-sentenc
 
 ```bash
 # Basic transcription
-./transcribe audio_file.mp3 -o output.txt -c "context about the audio" -m gpt-4o -v
+transcribe audio_file.mp3 -o output.txt -c "context about the audio" -m gpt-4o -v
 
 # Transcription with timestamps
-./transcribe audio_file.mp3 -o output.txt -T -v
+transcribe audio_file.mp3 -o output.txt -T -v
 
 # Generate SRT subtitles
-./transcribe audio_file.mp3 -o output.txt --srt -v
+transcribe audio_file.mp3 -o output.txt --srt -v
 
 # Generate VTT subtitles
-./transcribe audio_file.mp3 -o output.txt --vtt -v
+transcribe audio_file.mp3 -o output.txt --vtt -v
 ```
 
 ### Clean a Transcript
 
 ```bash
-./clean-transcript input.txt -o output.txt -c "context information" -m gpt-4o
+clean-transcript input.txt -o output.txt -c "context information" -m gpt-4o
 ```
 
 ### Create Well-Formed Sentences
 
 ```bash
-./create-sentences input.txt -o output.txt
+create-sentences input.txt -o output.txt
 ```
 
 ## Command Line Options
