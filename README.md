@@ -131,11 +131,24 @@ Processing Options:
   -l, --chunk-length MS  Length of audio chunks in milliseconds (default: 600000)
   -L, --input-language   Define the language used in the input audio (auto-detects if not specified)
   -c, --context TEXT     Context information to improve transcription
+  -W, --transcribe-model MODEL Model for transcription (default: whisper-1)
   -m, --model MODEL      GPT model for post-processing (default: gpt-4o)
   -s, --max-chunk-size N Maximum chunk size for post-processing (default: 3000)
-  -t, --temperature N    Temperature for generation (default: 0.1)
+  -t, --temperature N    Temperature for generation (default: 0.05)
   -p, --prompt TEXT      Provide a prompt to guide the initial transcription
   -P, --no-post-processing Skip post-processing step
+  -w, --max-workers N    Maximum number of parallel workers for transcription (default: 1)
+
+Advanced Post-Processing Options:
+  --summary-model MODEL  OpenAI model to use for context summarization (default: gpt-4o-mini)
+  --auto-context         Automatically determine domain context from transcript content
+  --raw                  Save the raw transcript before post-processing
+  --auto-language        Auto-detect language from transcript content
+  --parallel             Enable parallel processing for large transcripts
+  --max-parallel-workers N Maximum number of parallel workers for post-processing
+  --cache                Enable caching of processing results for better performance
+  --content-aware        Enable content-aware specialized processing
+  --clear-cache          Clear any cached processing results before starting
 
 Timestamp and Subtitle Options:
   -T, --timestamps       Include timestamp information in the output
@@ -145,6 +158,22 @@ Timestamp and Subtitle Options:
 Logging Options:
   -v, --verbose          Verbose output
   -d, --debug            Debug output
+
+Examples:
+  # Basic transcription
+  transcribe-new audio_file.mp3
+  
+  # Advanced transcription with processing options
+  transcribe-new audio_file.mp3 -o transcript.txt --content-aware --parallel --cache
+  
+  # Transcription with context hints
+  transcribe-new audio_file.mp3 -c "philosophy,science" -m gpt-4o
+  
+  # Subtitles generation
+  transcribe-new audio_file.mp3 --srt
+  
+  # Use custom models
+  transcribe-new audio_file.mp3 -W gpt-4o-mini-transcribe -m gpt-4o
 ```
 
 ### Clean Transcript
@@ -220,42 +249,78 @@ You can specify configuration options in a JSON file:
 
 ## Advanced Usage
 
+### Parallel Processing
+
+For optimal performance with large audio files, you can use the `transcribe-parallel` script which automatically configures parallel processing:
+
+```bash
+# Use the optimized parallel wrapper script
+transcribe-parallel audio_file.mp3 -o output.txt
+```
+
+For detailed information on parallel processing options and performance considerations, see [PARALLEL_PROCESSING.md](PARALLEL_PROCESSING.md).
+
+### Advanced Command Line Features
+
+```bash
+# Enable parallel transcription with specific worker count
+transcribe audio_file.mp3 -w 4
+
+# Enable parallel post-processing 
+transcribe audio_file.mp3 --parallel --max-parallel-workers 4
+
+# Enable both parallel transcription and post-processing
+transcribe audio_file.mp3 -w 4 --parallel
+
+# Use content-aware processing for better handling of specific content types
+transcribe audio_file.mp3 --content-aware
+
+# Enable caching to avoid redundant API calls
+transcribe audio_file.mp3 --cache
+
+# All advanced features combined
+transcribe audio_file.mp3 --parallel --content-aware --cache --auto-context
+```
+
 ### Using as a Python Package
 
 ```python
-from transcribe_pkg.core.transcriber import transcribe_audio_file
-from transcribe_pkg.core.processor import process_transcript
-from transcribe_pkg.utils.subtitle import generate_srt, generate_vtt
+from transcribe_pkg.core.transcriber import Transcriber
+from transcribe_pkg.core.processor import TranscriptProcessor
+from transcribe_pkg.utils.subtitle_utils import save_subtitles
 
-# Transcribe an audio file
-transcript = transcribe_audio_file(
-    audio_path="lecture.mp3",
-    output_file="transcript.txt",
-    context="University lecture on quantum physics",
-    model="gpt-4o"
-)
-
-# Generate subtitles
-transcript_with_timestamps = transcribe_audio_file(
-    audio_path="lecture.mp3",
-    with_timestamps=True
-)
-
-# Create SRT subtitles
-with open("lecture.srt", "w") as f:
-    f.write(generate_srt(transcript_with_timestamps["segments"]))
-
-# Create VTT subtitles
-with open("lecture.vtt", "w") as f:
-    f.write(generate_vtt(transcript_with_timestamps["segments"]))
-
-# Process a transcript
-processed_text = process_transcript(
-    input_text=transcript,
-    context="Technical content with scientific terminology",
+# Initialize components
+transcriber = Transcriber(model="whisper-1")
+processor = TranscriptProcessor(
     model="gpt-4o",
-    language="en"
+    summary_model="gpt-4o-mini",
+    max_chunk_size=3000,
+    cache_enabled=True,
+    content_aware=True
 )
+
+# Transcribe audio file
+transcript = transcriber.transcribe(
+    audio_path="lecture.mp3",
+    prompt="University lecture on quantum physics",
+    with_timestamps=True,
+    max_workers=4  # Enable parallel transcription
+)
+
+# Save subtitles
+save_subtitles(transcript, "lecture.srt", format_type="srt")
+
+# Process the transcript with advanced features
+processed_text = processor.process(
+    text=transcript["text"],
+    context="University lecture on quantum physics",
+    use_parallel=True,
+    content_analysis=True
+)
+
+# Save processed text
+with open("lecture_processed.txt", "w") as f:
+    f.write(processed_text)
 ```
 
 ## Development
@@ -279,8 +344,13 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 ## Authors
 
 - Gary Dean
-- Claude Code 0.2.29
+- Claude Code 0.2.30
 
 ---
 
-*This README was last updated on March 2nd, 2025*
+*This README was last updated on March 21st, 2025*
+
+## Recent Changes
+- Added optimized parallel processing wrapper script `transcribe-parallel`
+- Fixed HTTP request logs appearing at INFO level (now only shown in debug mode)
+- Improved parallel processing implementation for better performance
