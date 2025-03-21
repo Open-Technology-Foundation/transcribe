@@ -2,9 +2,9 @@ colorlog==6.9.0
 coverage==7.6.12
 langcodes==3.5.0
 nltk==3.9.1
-openai==1.65.2
+openai==1.66.3
 pydub==0.25.1
 python-dotenv==1.0.1
-setuptools==75.8.2
+setuptools==76.0.0
 tenacity==9.0.0
 tqdm==4.67.1

@@ -128,7 +128,7 @@ def split_audio(audio_path, chunk_length_ms=600000):
   return chunks
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-def transcribe_audio(audio_path, prompt="", language='en', with_timestamps=False):
+def transcribe_audio(audio_path, prompt="", language='en', with_timestamps=False, model="whisper-1"):
   """Transcribe audio using Whisper API with optional prompt.
   
   Args:
@@ -136,6 +136,7 @@ def transcribe_audio(audio_path, prompt="", language='en', with_timestamps=False
       prompt: Optional context prompt to guide transcription
       language: Language code (e.g., 'en', 'fr')
       with_timestamps: If True, return word-level timestamp information
+      model: The OpenAI model to use for transcription (e.g., 'whisper-1', 'gpt-4o-mini-transcribe')
       
   Returns:
       If with_timestamps=False: The transcribed text as a string
@@ -148,7 +149,7 @@ def transcribe_audio(audio_path, prompt="", language='en', with_timestamps=False
   try:
     with open(audio_path, "rb") as audio_file:
       transcription = openai.audio.transcriptions.create(
-        model="whisper-1",
+        model=model,
         file=audio_file,
         temperature=0.05,
         prompt=prompt,
@@ -250,7 +251,7 @@ def create_paragraphs(text, *, min_sentences=3, max_sentences=8, max_sentence_le
     paragraphs.append(' '.join(current_paragraph))
   return '\n\n'.join(paragraphs)
 
-def transcribe_chunks(chunk_paths, Prompt='', language='en', with_timestamps=False):
+def transcribe_chunks(chunk_paths, Prompt='', language='en', with_timestamps=False, model="whisper-1"):
   """Transcribe audio chunks sequentially, updating the prompt each time.
   
   Args:
@@ -258,6 +259,7 @@ def transcribe_chunks(chunk_paths, Prompt='', language='en', with_timestamps=Fal
       Prompt: Initial prompt to guide transcription
       language: Language code (e.g., 'en', 'fr')
       with_timestamps: If True, include timestamp information in output
+      model: The OpenAI model to use for transcription (e.g., 'whisper-1', 'gpt-4o-mini-transcribe')
       
   Returns:
       If with_timestamps=False: List of transcribed text chunks
@@ -273,7 +275,7 @@ def transcribe_chunks(chunk_paths, Prompt='', language='en', with_timestamps=Fal
   
   for chunk_index, chunk_path in enumerate(tqdm(chunk_paths, desc="Transcribing chunks", disable=not logging.getLogger().isEnabledFor(logging.INFO))):
     try:
-      transcript_result = transcribe_audio(chunk_path, prompt, language, with_timestamps)
+      transcript_result = transcribe_audio(chunk_path, prompt, language, with_timestamps, model)
       
       if with_timestamps:
         # Handle empty results
@@ -340,7 +342,7 @@ from subtitle_utils import save_subtitles
 
 #-----------------------------------------------------------------------------------------------------
 def main(audio_path, chunk_length_ms, output_file, context, prompt, model, no_post_processing, 
-         language, temperature, chunk_size, with_timestamps=False, subtitle_format=None):
+         language, temperature, chunk_size, with_timestamps=False, subtitle_format=None, transcribe_model="whisper-1"):
   """
   Main function for transcribing audio files.
   
@@ -357,6 +359,7 @@ def main(audio_path, chunk_length_ms, output_file, context, prompt, model, no_po
       chunk_size: Maximum chunk size for post-processing
       with_timestamps: Include timestamp information if True
       subtitle_format: Output subtitle format (srt, vtt, or None)
+      transcribe_model: OpenAI Model to use for transcription (default: 'whisper-1')
   """
   chunk_paths = []
   try:
@@ -378,7 +381,7 @@ def main(audio_path, chunk_length_ms, output_file, context, prompt, model, no_po
       # Always transcribe with timestamps for stdout if requested
       chunk_paths = split_audio(audio_path, chunk_length_ms)
       logging.info("Starting transcription process")
-      transcript_result = transcribe_chunks(chunk_paths, prompt, language, with_timestamps=True)
+      transcript_result = transcribe_chunks(chunk_paths, prompt, language, with_timestamps=True, model=transcribe_model)
       transcript = transcript_result["text"]
     else:
       # Normal file-based workflow
@@ -390,7 +393,7 @@ def main(audio_path, chunk_length_ms, output_file, context, prompt, model, no_po
         
         # Transcribe each chunk
         logging.info("Starting transcription process")
-        transcript_result = transcribe_chunks(chunk_paths, prompt, language, with_timestamps)
+        transcript_result = transcribe_chunks(chunk_paths, prompt, language, with_timestamps, model=transcribe_model)
         
         if with_timestamps:
           # Store the raw transcript text
@@ -421,7 +424,7 @@ def main(audio_path, chunk_length_ms, output_file, context, prompt, model, no_po
         if with_timestamps:
           logging.warning("Raw transcript exists but timestamps required. Re-transcribing audio.")
           chunk_paths = split_audio(audio_path, chunk_length_ms)
-          transcript_result = transcribe_chunks(chunk_paths, prompt, language, with_timestamps=True)
+          transcript_result = transcribe_chunks(chunk_paths, prompt, language, with_timestamps=True, model=transcribe_model)
           transcript = transcript_result["text"]
         else:
           # Otherwise, just read the existing raw transcript
@@ -453,7 +456,7 @@ def main(audio_path, chunk_length_ms, output_file, context, prompt, model, no_po
       logging.info("Post-processing transcript")
       transcript = process_transcript(transcript,
             model=model, max_tokens=4096, temperature=temperature,
-            context=context,
+            context=f"{prompt} {context}",
             language=language,
             max_chunk_size=chunk_size
             )
@@ -538,6 +541,8 @@ if __name__ == "__main__":
       help='Define the language used in the input audio (def: None)')
   processing_group.add_argument('-c', '--context', default='',
       help='Provide context for post-processing; eg, medical,legal,technical (def: \'\')')
+  processing_group.add_argument('-W', '--transcribe-model', default='whisper-1',
+      help='OpenAI Model to use for transcription, eg, gpt-4o-mini-transcribe, whisper-1 (def:whisper-1)')
   processing_group.add_argument('-m', '--model', default='gpt-4o',
       help='OpenAI LLModel to use for post-processing, eg, gpt-4o, gpt-4o-mini (def: gpt-4o)')
   processing_group.add_argument('-s', '--max-chunk-size', type=int,
@@ -607,7 +612,8 @@ if __name__ == "__main__":
     temperature=args.temperature, 
     chunk_size=args.max_chunk_size,
     with_timestamps=args.timestamps,
-    subtitle_format=subtitle_format
+    subtitle_format=subtitle_format,
+    transcribe_model=args.transcribe_model
   )
 
 # fin

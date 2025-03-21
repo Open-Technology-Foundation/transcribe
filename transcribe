@@ -1,20 +1,21 @@
 #!/bin/bash
+# Wrapper script for the new transcription implementation
+
 set -euo pipefail
 
-declare PRG0=$(readlink -fn -- "$0")
-declare PRGDIR=$(dirname "$PRG0")
-    
-# Activate virtual environment if it exists
-if [[ -f "$PRGDIR"/.venv/bin/activate ]]; then
-  source "$PRGDIR"/.venv/bin/activate
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+# Check if the transcribe_pkg module is available
+if ! python3 -c "import transcribe_pkg" &>/dev/null; then
+  echo -e "${RED}Error: transcribe_pkg module not found${NC}"
+  echo "Make sure the package is installed or in your PYTHONPATH"
+  exit 1
 fi
 
-# Source environment variables if .env exists
-if [[ -f "$PRGDIR"/.env ]]; then
-  source "$PRGDIR"/.env
-fi
-
-# Execute the Python script with all arguments
-python3 "$PRGDIR"/transcribe.py "$@"
+# Execute the main transcribe command directly
+python3 -c "from transcribe_pkg.cli.commands import transcribe_command; import sys; sys.exit(transcribe_command())" "$@"
 
 #fin

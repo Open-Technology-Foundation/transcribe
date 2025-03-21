@@ -17,7 +17,7 @@ fi
 # Check if running in development mode or installed mode
 if [[ -f "$PRGDIR"/transcribe_pkg/main.py ]]; then
   # Development mode - run directly from source
-  PYTHONPATH="$PRGDIR" python3 -c "from transcribe_pkg.main import clean_transcript_main; clean_transcript_main()" "$@"
+  PYTHONPATH="$PRGDIR" python3 -c "from transcribe_pkg.main import clean_transcript_main; import sys; sys.exit(clean_transcript_main())" "$@"
 else
   # Installed mode - run from path
   clean-transcript "$@"

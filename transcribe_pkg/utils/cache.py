@@ -1,436 +1,363 @@
 #!/usr/bin/env python3
 """
-Caching utilities for the transcribe package.
+Caching utilities for expensive operations.
 
-This module provides caching functionality to reduce redundant API calls and processing
-operations. It implements a disk-based caching system that stores serialized data to
-improve performance and reduce costs.
-
-Key features:
-- Function result caching via the @cached decorator
-- Persistent storage of cached data on disk
-- Automatic cache key generation based on function arguments
-- Configurable cache size and location
-- Thread-safe cache access
-- Environment variable control for cache behavior
-
-The caching system can be controlled through environment variables:
-- TRANSCRIBE_CACHE_DISABLED: Set to 1 to disable caching
-- TRANSCRIBE_CACHE_DIR: Custom directory for cache storage
-- TRANSCRIBE_CACHE_SIZE_MB: Maximum cache size in megabytes
+This module provides caching mechanisms for expensive operations like API calls,
+transcription, and processing, helping to save time and resources when
+working with large files or repeatedly processing the same content.
 """
-
 import os
 import json
 import hashlib
+import time
 import logging
-import tempfile
-import threading
+from typing import Dict, Any, Optional, Union, List, Callable
+import pickle
 from pathlib import Path
-from typing import Any, Dict, Optional, Union, Callable
-from functools import wraps
 
-# Global cache instance
-_cache = None
-_cache_lock = threading.RLock()
+from transcribe_pkg.utils.logging_utils import get_logger
 
-class Cache:
+class CacheManager:
     """
-    A simple disk-based cache for API responses and processed data.
+    Manage caching of results for expensive operations.
     
-    This cache stores serialized data on disk to avoid redundant API calls
-    and processing operations.
+    This class provides flexible caching with different storage backends,
+    supporting both memory and disk-based caching with configurable
+    expiration and invalidation policies.
     """
     
-    def __init__(self, cache_dir: Optional[str] = None, max_size_mb: int = 100):
+    def __init__(
+        self,
+        cache_dir: str = None,
+        max_memory_items: int = 1000,
+        disk_cache_enabled: bool = True,
+        memory_cache_enabled: bool = True,
+        logger: Optional[logging.Logger] = None
+    ):
         """
-        Initialize the cache.
+        Initialize the cache manager.
         
         Args:
-            cache_dir (str, optional): Directory to store cache files. 
-                                       Defaults to a temp directory.
-            max_size_mb (int, optional): Maximum cache size in MB. Defaults to 100.
+            cache_dir: Directory for disk cache (default: ~/.cache/transcribe)
+            max_memory_items: Maximum number of items in memory cache
+            disk_cache_enabled: Whether disk caching is enabled
+            memory_cache_enabled: Whether memory caching is enabled
+            logger: Logger instance
         """
-        if cache_dir:
-            self.cache_dir = Path(cache_dir)
-            os.makedirs(self.cache_dir, exist_ok=True)
-        else:
-            # Create a persistent cache directory in the system temp directory
-            tmp_dir = Path(tempfile.gettempdir())
-            self.cache_dir = tmp_dir / 'transcribe_cache'
-            os.makedirs(self.cache_dir, exist_ok=True)
+        self.logger = logger or get_logger(__name__)
         
-        self.max_size_bytes = max_size_mb * 1024 * 1024
-        self._metadata_path = self.cache_dir / 'metadata.json'
-        self._metadata = self._load_metadata()
+        # Set up cache directory
+        if cache_dir is None:
+            home_dir = os.path.expanduser("~")
+            cache_dir = os.path.join(home_dir, ".cache", "transcribe")
+        
+        self.cache_dir = cache_dir
+        self.max_memory_items = max_memory_items
+        self.disk_cache_enabled = disk_cache_enabled
+        self.memory_cache_enabled = memory_cache_enabled
+        
+        # Create memory cache
+        self.memory_cache = {}
+        self.memory_timestamp = {}
+        
+        # Create cache directory if it doesn't exist
+        if self.disk_cache_enabled:
+            os.makedirs(self.cache_dir, exist_ok=True)
     
-    def _load_metadata(self) -> Dict[str, Any]:
+    def get(
+        self, 
+        key: str, 
+        cache_type: str = "both", 
+        max_age: Optional[float] = None
+    ) -> Optional[Any]:
         """
-        Load cache metadata from disk.
+        Get an item from the cache.
+        
+        Args:
+            key: Cache key
+            cache_type: Type of cache to check ('memory', 'disk', or 'both')
+            max_age: Maximum age of cached item in seconds (None = no limit)
+            
+        Returns:
+            Cached value or None if not found or expired
+        """
+        # Generate a consistent hash key
+        hashed_key = self._hash_key(key)
+        
+        # Check memory cache first if enabled
+        if (cache_type in ["memory", "both"]) and self.memory_cache_enabled:
+            if hashed_key in self.memory_cache:
+                timestamp = self.memory_timestamp.get(hashed_key, 0)
+                
+                # Check if item is expired
+                if max_age is None or (time.time() - timestamp) <= max_age:
+                    self.logger.debug(f"Cache hit (memory): {key[:50]}...")
+                    return self.memory_cache[hashed_key]
+                else:
+                    # Remove expired item
+                    self._remove_from_memory(hashed_key)
+        
+        # Check disk cache if enabled
+        if (cache_type in ["disk", "both"]) and self.disk_cache_enabled:
+            cache_path = self._get_cache_path(hashed_key)
+            
+            if os.path.exists(cache_path):
+                # Check if item is expired
+                if max_age is not None:
+                    modified_time = os.path.getmtime(cache_path)
+                    if (time.time() - modified_time) > max_age:
+                        # Remove expired file
+                        self._remove_from_disk(hashed_key)
+                        return None
+                
+                # Load item from disk
+                try:
+                    with open(cache_path, "rb") as f:
+                        cached_value = pickle.load(f)
+                    
+                    # Add to memory cache for faster access next time
+                    if self.memory_cache_enabled:
+                        self._add_to_memory(hashed_key, cached_value)
+                    
+                    self.logger.debug(f"Cache hit (disk): {key[:50]}...")
+                    return cached_value
+                    
+                except Exception as e:
+                    self.logger.warning(f"Error loading cache from disk: {str(e)}")
+        
+        # Not found in any cache
+        self.logger.debug(f"Cache miss: {key[:50]}...")
+        return None
+    
+    def set(
+        self, 
+        key: str, 
+        value: Any, 
+        cache_type: str = "both"
+    ) -> None:
+        """
+        Store an item in the cache.
+        
+        Args:
+            key: Cache key
+            value: Value to cache
+            cache_type: Type of cache to store in ('memory', 'disk', or 'both')
+        """
+        # Generate a consistent hash key
+        hashed_key = self._hash_key(key)
+        
+        # Store in memory cache
+        if (cache_type in ["memory", "both"]) and self.memory_cache_enabled:
+            self._add_to_memory(hashed_key, value)
+        
+        # Store in disk cache
+        if (cache_type in ["disk", "both"]) and self.disk_cache_enabled:
+            try:
+                cache_path = self._get_cache_path(hashed_key)
+                
+                # Save to disk atomically to prevent corruption
+                tmp_path = f"{cache_path}.tmp"
+                with open(tmp_path, "wb") as f:
+                    pickle.dump(value, f)
+                os.replace(tmp_path, cache_path)
+                
+                self.logger.debug(f"Cache set (disk): {key[:50]}...")
+            except Exception as e:
+                self.logger.warning(f"Error saving cache to disk: {str(e)}")
+    
+    def invalidate(self, key: str, cache_type: str = "both") -> None:
+        """
+        Remove an item from the cache.
+        
+        Args:
+            key: Cache key to invalidate
+            cache_type: Type of cache to invalidate ('memory', 'disk', or 'both')
+        """
+        hashed_key = self._hash_key(key)
+        
+        # Remove from memory cache
+        if (cache_type in ["memory", "both"]) and self.memory_cache_enabled:
+            self._remove_from_memory(hashed_key)
+            
+        # Remove from disk cache
+        if (cache_type in ["disk", "both"]) and self.disk_cache_enabled:
+            self._remove_from_disk(hashed_key)
+    
+    def clear(self, cache_type: str = "both") -> None:
+        """
+        Clear all items from the cache.
+        
+        Args:
+            cache_type: Type of cache to clear ('memory', 'disk', or 'both')
+        """
+        # Clear memory cache
+        if (cache_type in ["memory", "both"]) and self.memory_cache_enabled:
+            self.memory_cache.clear()
+            self.memory_timestamp.clear()
+            self.logger.debug("Memory cache cleared")
+        
+        # Clear disk cache
+        if (cache_type in ["disk", "both"]) and self.disk_cache_enabled:
+            try:
+                for file_name in os.listdir(self.cache_dir):
+                    if file_name.endswith(".cache"):
+                        try:
+                            os.remove(os.path.join(self.cache_dir, file_name))
+                        except:
+                            pass
+                self.logger.debug("Disk cache cleared")
+            except Exception as e:
+                self.logger.warning(f"Error clearing disk cache: {str(e)}")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Get cache statistics.
         
         Returns:
-            Dict: Cache metadata
+            Dictionary of cache statistics
         """
-        if self._metadata_path.exists():
-            try:
-                with open(self._metadata_path, 'r') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                logging.warning(f"Error loading cache metadata: {str(e)}")
+        # Count disk cache items and size
+        disk_items = 0
+        disk_size = 0
         
-        # Default metadata
+        if self.disk_cache_enabled and os.path.exists(self.cache_dir):
+            try:
+                for file_name in os.listdir(self.cache_dir):
+                    if file_name.endswith(".cache"):
+                        file_path = os.path.join(self.cache_dir, file_name)
+                        disk_items += 1
+                        disk_size += os.path.getsize(file_path)
+            except Exception:
+                pass
+        
         return {
-            'entries': {},
-            'total_size_bytes': 0
+            "memory_items": len(self.memory_cache),
+            "memory_enabled": self.memory_cache_enabled,
+            "disk_items": disk_items,
+            "disk_size": disk_size,
+            "disk_enabled": self.disk_cache_enabled,
+            "cache_dir": self.cache_dir
         }
     
-    def _save_metadata(self) -> None:
-        """Save cache metadata to disk."""
-        try:
-            with open(self._metadata_path, 'w') as f:
-                json.dump(self._metadata, f)
-        except OSError as e:
-            logging.warning(f"Error saving cache metadata: {str(e)}")
-    
-    def _get_cache_key(self, key_data: Any) -> str:
+    def _hash_key(self, key: str) -> str:
         """
-        Generate a unique cache key from input data.
+        Generate a hash for a cache key.
         
         Args:
-            key_data: Data to hash for the key
+            key: Cache key
             
         Returns:
-            str: Cache key as a hex string
+            Hashed key
         """
-        # Convert to JSON and hash
-        if isinstance(key_data, str):
-            data_str = key_data
-        else:
-            # Convert to a serializable form
-            serializable_data = self._make_serializable(key_data)
-            data_str = json.dumps(serializable_data, sort_keys=True)
-        
-        return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
-        
-    def _make_serializable(self, obj: Any) -> Any:
+        return hashlib.md5(key.encode()).hexdigest()
+    
+    def _get_cache_path(self, hashed_key: str) -> str:
         """
-        Convert non-serializable objects to serializable types.
-        
-        This method recursively processes Python objects and converts them to types that
-        can be serialized to JSON. It handles complex objects that cannot be directly
-        serialized, ensuring they can be properly cached.
+        Get the file path for a disk cache item.
         
         Args:
-            obj: Object to make serializable - can be any Python object
+            hashed_key: Hashed cache key
             
         Returns:
-            Object in a serializable form (dict, list, str, int, float, bool, None)
-            
-        Notes:
-            - Dictionaries are processed recursively for each key-value pair
-            - Lists and tuples are processed recursively for each element
-            - Primitive types (str, int, float, bool, None) are returned as-is
-            - All other objects are converted to their string representation
-            - This approach handles circular references by converting to strings
+            File path for the cache item
         """
-        if isinstance(obj, dict):
-            return {str(k): self._make_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, (list, tuple)):
-            return [self._make_serializable(i) for i in obj]
-        elif isinstance(obj, (str, int, float, bool, type(None))):
-            return obj
-        else:
-            # For non-serializable types, convert to string representation
-            return str(obj)
+        return os.path.join(self.cache_dir, f"{hashed_key}.cache")
     
-    def _get_cache_path(self, cache_key: str) -> Path:
+    def _add_to_memory(self, hashed_key: str, value: Any) -> None:
         """
-        Get the file path for a cache entry.
+        Add an item to the memory cache, evicting old items if needed.
         
         Args:
-            cache_key (str): Cache key
-            
-        Returns:
-            Path: Path to cache file
+            hashed_key: Hashed cache key
+            value: Value to cache
         """
-        return self.cache_dir / f"{cache_key}.json"
-    
-    def get(self, key_data: Any, default: Any = None) -> Any:
-        """
-        Get data from cache.
-        
-        Args:
-            key_data: Data to hash for the key
-            default: Default value if not in cache
-            
-        Returns:
-            Any: Cached data or default
-        """
-        with _cache_lock:
-            cache_key = self._get_cache_key(key_data)
-            cache_path = self._get_cache_path(cache_key)
-            
-            # Check if in cache
-            if cache_key in self._metadata['entries'] and cache_path.exists():
-                try:
-                    with open(cache_path, 'r') as f:
-                        cached_data = json.load(f)
-                    
-                    # Update access timestamp
-                    self._metadata['entries'][cache_key]['last_accessed'] = os.path.getmtime(cache_path)
-                    self._save_metadata()
-                    
-                    return cached_data
-                except (json.JSONDecodeError, OSError) as e:
-                    logging.warning(f"Error reading cache entry: {str(e)}")
-            
-            return default
-    
-    def set(self, key_data: Any, value: Any) -> None:
-        """
-        Store data in cache.
-        
-        Args:
-            key_data: Data to hash for the key
-            value: Data to cache
-        """
-        with _cache_lock:
-            cache_key = self._get_cache_key(key_data)
-            cache_path = self._get_cache_path(cache_key)
-            
-            try:
-                # Serialize data
-                serialized = json.dumps(value)
-                entry_size = len(serialized.encode('utf-8'))
-                
-                # Check if we need to make room
-                if self._metadata['total_size_bytes'] + entry_size > self.max_size_bytes:
-                    self._evict_entries(entry_size)
-                
-                # Write to disk
-                with open(cache_path, 'w') as f:
-                    f.write(serialized)
-                
-                # Update metadata
-                self._metadata['entries'][cache_key] = {
-                    'size_bytes': entry_size,
-                    'last_accessed': os.path.getmtime(cache_path),
-                    'created': os.path.getctime(cache_path)
-                }
-                self._metadata['total_size_bytes'] += entry_size
-                self._save_metadata()
-                
-            except (TypeError, OSError) as e:
-                logging.warning(f"Error caching data: {str(e)}")
-    
-    def delete(self, key_data: Any) -> bool:
-        """
-        Delete an entry from the cache.
-        
-        Args:
-            key_data: Data to hash for the key
-            
-        Returns:
-            bool: True if deleted, False otherwise
-        """
-        with _cache_lock:
-            cache_key = self._get_cache_key(key_data)
-            cache_path = self._get_cache_path(cache_key)
-            
-            if cache_key in self._metadata['entries']:
-                try:
-                    if cache_path.exists():
-                        os.remove(cache_path)
-                    
-                    # Update metadata
-                    entry_size = self._metadata['entries'][cache_key]['size_bytes']
-                    self._metadata['total_size_bytes'] -= entry_size
-                    del self._metadata['entries'][cache_key]
-                    self._save_metadata()
-                    return True
-                except OSError as e:
-                    logging.warning(f"Error deleting cache entry: {str(e)}")
-            
-            return False
-    
-    def clear(self) -> None:
-        """Clear all cache entries."""
-        with _cache_lock:
-            try:
-                # Delete all cache files
-                for entry_key in self._metadata['entries']:
-                    cache_path = self._get_cache_path(entry_key)
-                    if cache_path.exists():
-                        os.remove(cache_path)
-                
-                # Reset metadata
-                self._metadata = {
-                    'entries': {},
-                    'total_size_bytes': 0
-                }
-                self._save_metadata()
-                
-                logging.info("Cache cleared")
-            except OSError as e:
-                logging.warning(f"Error clearing cache: {str(e)}")
-    
-    def _evict_entries(self, needed_bytes: int) -> None:
-        """
-        Evict entries to make room for new data.
-        
-        Args:
-            needed_bytes (int): Number of bytes needed
-        """
-        # Sort entries by last accessed time (oldest first)
-        entries = sorted(
-            self._metadata['entries'].items(),
-            key=lambda x: x[1]['last_accessed']
-        )
-        
-        bytes_freed = 0
-        for key, entry in entries:
-            # Skip if we've freed enough space
-            if bytes_freed >= needed_bytes:
-                break
-            
-            # Delete the entry
-            cache_path = self._get_cache_path(key)
-            try:
-                if cache_path.exists():
-                    os.remove(cache_path)
-                
-                # Update metadata
-                bytes_freed += entry['size_bytes']
-                self._metadata['total_size_bytes'] -= entry['size_bytes']
-                del self._metadata['entries'][key]
-                
-            except OSError as e:
-                logging.warning(f"Error evicting cache entry: {str(e)}")
-        
-        # Save updated metadata
-        self._save_metadata()
-        
-        if bytes_freed < needed_bytes:
-            logging.warning(
-                f"Could only free {bytes_freed} bytes, but needed {needed_bytes}. "
-                f"Cache may exceed size limit."
+        # Check if we need to evict items
+        if len(self.memory_cache) >= self.max_memory_items:
+            # Find the oldest item
+            oldest_key = min(
+                self.memory_timestamp.keys(),
+                key=lambda k: self.memory_timestamp.get(k, 0)
             )
-
-def get_cache() -> Cache:
-    """
-    Get the global cache instance.
+            self._remove_from_memory(oldest_key)
+        
+        # Add new item
+        self.memory_cache[hashed_key] = value
+        self.memory_timestamp[hashed_key] = time.time()
+        self.logger.debug(f"Cache set (memory): {hashed_key[:8]}...")
     
-    Returns:
-        Cache: Global cache instance
-    """
-    global _cache
-    with _cache_lock:
-        if _cache is None:
-            # Use environment variable for cache directory if available
-            cache_dir = os.getenv('TRANSCRIBE_CACHE_DIR')
-            max_size_mb = int(os.getenv('TRANSCRIBE_CACHE_SIZE_MB', '100'))
-            _cache = Cache(cache_dir, max_size_mb)
-        return _cache
-
-def cached(key_func: Optional[Callable] = None):
-    """
-    Decorator to cache function results in a persistent disk-based cache.
+    def _remove_from_memory(self, hashed_key: str) -> None:
+        """
+        Remove an item from the memory cache.
+        
+        Args:
+            hashed_key: Hashed cache key
+        """
+        if hashed_key in self.memory_cache:
+            del self.memory_cache[hashed_key]
+        
+        if hashed_key in self.memory_timestamp:
+            del self.memory_timestamp[hashed_key]
     
-    This decorator provides a way to cache function results, particularly useful
-    for expensive operations like API calls, transcription processing, or other
-    computationally intensive tasks. It automatically handles serialization and
-    deserialization of the cached data.
+    def _remove_from_disk(self, hashed_key: str) -> None:
+        """
+        Remove an item from the disk cache.
+        
+        Args:
+            hashed_key: Hashed cache key
+        """
+        cache_path = self._get_cache_path(hashed_key)
+        if os.path.exists(cache_path):
+            try:
+                os.remove(cache_path)
+            except Exception as e:
+                self.logger.warning(f"Error removing cache file: {str(e)}")
+
+def cached(
+    key_func: Optional[Callable] = None,
+    cache_type: str = "both",
+    max_age: Optional[float] = None,
+    cache_manager: Optional[CacheManager] = None
+) -> Callable:
+    """
+    Decorator for caching function results.
     
     Args:
-        key_func (callable, optional): Custom function to generate cache keys from arguments.
-                                      If not provided, a default key generator is used that
-                                      hashes function args and kwargs.
-    
+        key_func: Function to generate cache key from arguments
+        cache_type: Type of cache to use ('memory', 'disk', or 'both')
+        max_age: Maximum age of cached result in seconds
+        cache_manager: CacheManager instance (creates a new one if None)
+        
     Returns:
-        callable: Decorated function with caching capability
-        
-    Notes:
-        - Cache can be disabled by setting TRANSCRIBE_NO_CACHE=1 environment variable
-        - Uses the global cache instance with configuration from environment variables
-        - Thread-safe for concurrent access
-        - Automatically handles serialization of complex objects
-        
-    Example:
-        @cached
-        def fetch_data_from_api(query, options=None):
-            # This call will be cached based on query and options
-            return expensive_api_call(query, options)
-            
-        # With custom key function
-        @cached(key_func=lambda url, **_: url)
-        def download_file(url, target_dir, options=None):
-            # Cache key is just the URL, ignoring other arguments
-            return download_and_process(url, target_dir, options)
+        Decorated function
     """
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Check if caching is disabled
-            if os.environ.get('TRANSCRIBE_NO_CACHE') == '1':
-                return func(*args, **kwargs)
-                
+    # Create default cache manager if not provided
+    if cache_manager is None:
+        cache_manager = CacheManager()
+    
+    def decorator(func: Callable) -> Callable:
+        def wrapper(*args, **kwargs) -> Any:
             # Generate cache key
-            try:
-                if key_func:
-                    # Create a copy of args without 'self' for instance methods
-                    func_args = args
-                    if args and hasattr(args[0], '__class__'):
-                        func_args = args[1:]
-                        
-                    # Apply key function with proper args
-                    if func_args:
-                        key = key_func(*func_args, **kwargs)
-                    else:
-                        key = key_func(**kwargs)
-                else:
-                    # Use function name, args, and kwargs as key
-                    key = {
-                        'func': func.__name__,
-                        'args': str(args),
-                        'kwargs': str(kwargs)
-                    }
-            except Exception as e:
-                logging.warning(f"Error generating cache key: {str(e)}")
-                # Fall back to function call without caching
-                return func(*args, **kwargs)
+            if key_func is not None:
+                cache_key = key_func(*args, **kwargs)
+            else:
+                # Default key is function name and args/kwargs
+                arg_str = str(args) + str(sorted(kwargs.items()))
+                cache_key = f"{func.__module__}.{func.__name__}:{arg_str}"
             
-            # Check cache
-            try:
-                cache = get_cache()
-                cached_result = cache.get(key)
-                
-                if cached_result is not None:
-                    logging.debug(f"Cache hit for {func.__name__}")
-                    return cached_result
-            except Exception as e:
-                logging.warning(f"Error checking cache: {str(e)}")
-                # Fall back to function call without caching
-                return func(*args, **kwargs)
+            # Try to get from cache
+            cached_result = cache_manager.get(cache_key, cache_type, max_age)
+            if cached_result is not None:
+                return cached_result
             
-            # Call function
+            # Call the original function
             result = func(*args, **kwargs)
             
-            # Cache result
-            if result is not None:
-                try:
-                    cache.set(key, result)
-                except Exception as e:
-                    logging.warning(f"Error caching result: {str(e)}")
+            # Cache the result
+            cache_manager.set(cache_key, result, cache_type)
             
             return result
         
         return wrapper
-    
-    # Handle case where decorator is used without arguments
-    if callable(key_func):
-        func = key_func
-        key_func = None
-        return decorator(func)
     
     return decorator
 
