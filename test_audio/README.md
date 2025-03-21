@@ -7,8 +7,6 @@ This directory contains audio files and reference transcripts used for testing a
 - **small_test_audio.mp3**: Short audio clip (approximately 30 seconds)
 - **medium_test_audio.mp3**: Medium-length audio clip (approximately 2-5 minutes)
 - **large_test_audio.mp3**: Long audio clip (approximately 10+ minutes)
-- **.txt files**: Reference transcripts or processed outputs
-- **.srt/.vtt files**: Generated subtitle files
 
 ## Usage
 
@@ -25,3 +23,4 @@ When adding new test audio files, please ensure they are:
 - Free from copyright restrictions or properly licensed
 - Appropriately sized for the intended test case
 - Accompanied by a reference transcript when possible
+

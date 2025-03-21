@@ -1,26 +1,23 @@
 #!/bin/bash
 set -euo pipefail
 
-declare PRG0=$(readlink -fn -- "$0")
-declare PRGDIR=$(dirname "$PRG0")
+# Get the directory of the script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+# Add the parent directory to PYTHONPATH to ensure module can be found
+export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
     
 # Activate virtual environment if it exists
-if [[ -f "$PRGDIR"/.venv/bin/activate ]]; then
-  source "$PRGDIR"/.venv/bin/activate
+if [[ -f "${SCRIPT_DIR}/.venv/bin/activate" ]]; then
+  source "${SCRIPT_DIR}/.venv/bin/activate"
 fi
 
 # Source environment variables if .env exists
-if [[ -f "$PRGDIR"/.env ]]; then
-  source "$PRGDIR"/.env
+if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+  source "${SCRIPT_DIR}/.env"
 fi
 
-# Check if running in development mode or installed mode
-if [[ -f "$PRGDIR"/transcribe_pkg/main.py ]]; then
-  # Development mode - run directly from source
-  PYTHONPATH="$PRGDIR" python3 -c "from transcribe_pkg.main import create_sentences_main; create_sentences_main()" "$@"
-else
-  # Installed mode - run from path
-  create-sentences "$@"
-fi
+# Run the create sentences command
+python3 -c "from transcribe_pkg.main import create_sentences_main; import sys; sys.exit(create_sentences_main())" "$@"
 
 #fin

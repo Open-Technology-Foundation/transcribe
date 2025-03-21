@@ -8,14 +8,28 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
 
+# Get the directory of the script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+# Activate virtual environment if it exists
+if [[ -f "${SCRIPT_DIR}/.venv/bin/activate" ]]; then
+  source "${SCRIPT_DIR}/.venv/bin/activate"
+  echo -e "${GREEN}Activated virtual environment${NC}"
+fi
+
+# Add the script directory to PYTHONPATH to ensure module can be found
+export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
+
 # Check if the transcribe_pkg module is available
-if ! python3 -c "import transcribe_pkg" &>/dev/null; then
+if ! python -c "import transcribe_pkg" &>/dev/null; then
   echo -e "${RED}Error: transcribe_pkg module not found${NC}"
   echo "Make sure the package is installed or in your PYTHONPATH"
+  echo "Current PYTHONPATH: ${PYTHONPATH}"
+  echo "Try: cd ${SCRIPT_DIR} && source .venv/bin/activate"
   exit 1
 fi
 
 # Execute the main transcribe command directly
-python3 -c "from transcribe_pkg.cli.commands import transcribe_command; import sys; sys.exit(transcribe_command())" "$@"
+python -c "from transcribe_pkg.cli.commands import transcribe_command; import sys; sys.exit(transcribe_command())" "$@"
 
 #fin
