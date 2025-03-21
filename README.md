@@ -333,6 +333,20 @@ python run_tests.py --coverage  # Generate coverage report
 python run_tests.py --pattern "test_config"  # Run specific tests
 ```
 
+### Benchmarking
+
+For performance testing and benchmarking of parallel processing features, check out the scripts in the `tests/benchmark` directory:
+
+```bash
+# Run the benchmark script with a sample audio file
+tests/benchmark/benchmark-parallel.sh path/to/audio_file
+
+# Test parallel flag implementation
+tests/benchmark/test-parallel-flag.py
+```
+
+See [tests/benchmark/README.md](tests/benchmark/README.md) for more details on benchmarking tools.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
