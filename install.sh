@@ -122,11 +122,58 @@ install_system() {
   chmod +x "${INSTALL_DIR}/clean-transcript" 2>/dev/null || echo "⚠️ Warning: clean-transcript not found"
   chmod +x "${INSTALL_DIR}/create-sentences" 2>/dev/null || echo "⚠️ Warning: create-sentences not found"
   
-  # Create symlinks
-  echo "🔗 Creating symlinks in /usr/local/bin..."
-  ln -sf "${INSTALL_DIR}/transcribe" /usr/local/bin/transcribe
-  ln -sf "${INSTALL_DIR}/clean-transcript" /usr/local/bin/clean-transcript 2>/dev/null || echo "⚠️ Warning: clean-transcript not found"
-  ln -sf "${INSTALL_DIR}/create-sentences" /usr/local/bin/create-sentences 2>/dev/null || echo "⚠️ Warning: create-sentences not found"
+  # Install the package in development mode
+  echo "📦 Installing package in development mode..."
+  pip install -e "${INSTALL_DIR}"
+  
+  # Create wrapper scripts
+  echo "🔗 Creating wrapper scripts in /usr/local/bin..."
+  
+  # Create the transcribe wrapper
+  cat > /usr/local/bin/transcribe << EOF
+#!/bin/bash
+# Wrapper script for transcribe
+
+set -euo pipefail
+${INSTALL_DIR}/.venv/bin/python -m transcribe_pkg "\$@"
+EOF
+  chmod +x /usr/local/bin/transcribe
+  
+  # Create the transcribe-parallel wrapper
+  cat > /usr/local/bin/transcribe-parallel << EOF
+#!/bin/bash
+# Wrapper script for parallel transcription
+
+set -euo pipefail
+# Calculate optimal worker counts
+CPU_COUNT=\$(nproc)
+WORKER_COUNT=\$((CPU_COUNT / 2 > 2 ? CPU_COUNT / 2 : 2))
+PARALLEL_WORKER_COUNT=\$((CPU_COUNT / 2 > 2 ? CPU_COUNT / 2 : 2))
+
+echo "Using \$WORKER_COUNT workers for transcription and \$PARALLEL_WORKER_COUNT workers for post-processing"
+${INSTALL_DIR}/.venv/bin/python -m transcribe_pkg --parallel --max-workers "\$WORKER_COUNT" --max-parallel-workers "\$PARALLEL_WORKER_COUNT" "\$@"
+EOF
+  chmod +x /usr/local/bin/transcribe-parallel
+  
+  # Create the clean-transcript wrapper
+  cat > /usr/local/bin/clean-transcript << EOF
+#!/bin/bash
+# Wrapper script for clean-transcript
+
+set -euo pipefail
+${INSTALL_DIR}/.venv/bin/python -m transcribe_pkg.main clean_transcript_main "\$@"
+EOF
+  chmod +x /usr/local/bin/clean-transcript
+  
+  # Create the create-sentences wrapper
+  cat > /usr/local/bin/create-sentences << EOF
+#!/bin/bash
+# Wrapper script for create-sentences
+
+set -euo pipefail
+${INSTALL_DIR}/.venv/bin/python -m transcribe_pkg.main create_sentences_main "\$@"
+EOF
+  chmod +x /usr/local/bin/create-sentences
   
   # Check for .env file
   if [[ ! -f "${INSTALL_DIR}/.env" ]]; then
