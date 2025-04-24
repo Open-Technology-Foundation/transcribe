@@ -1,23 +1,15 @@
 #!/bin/bash
+#shellcheck disable=SC2155,SC1091
 set -euo pipefail
 
-# Get the directory of the script
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-
-# Add the parent directory to PYTHONPATH to ensure module can be found
-export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
+declare PRG0=$(readlink -en -- "$0")
+declare PRGDIR=$(dirname -- "$PRG0")
+declare PRG=$(basename -- "$PRG0")
     
-# Activate virtual environment if it exists
-if [[ -f "${SCRIPT_DIR}/.venv/bin/activate" ]]; then
-  source "${SCRIPT_DIR}/.venv/bin/activate"
-fi
-
+source "$PRGDIR"/.venv/bin/activate
 # Source environment variables if .env exists
-if [[ -f "${SCRIPT_DIR}/.env" ]]; then
-  source "${SCRIPT_DIR}/.env"
-fi
+[[ -f "$PRGDIR"/.env ]] && source "$PRGDIR"/.env
 
-# Run the clean transcript command
-python3 -c "from transcribe_pkg.main import clean_transcript_main; import sys; sys.exit(clean_transcript_main())" "$@"
+"$PRGDIR"/"$PRG".py "$@"
 
 #fin

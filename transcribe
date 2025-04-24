@@ -1,35 +1,15 @@
 #!/bin/bash
-# Wrapper script for the new transcription implementation
-
+#shellcheck disable=SC2155,SC1091
 set -euo pipefail
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m' # No Color
+declare PRG0=$(readlink -en -- "$0")
+declare PRGDIR=$(dirname -- "$PRG0")
+declare PRG=$(basename -- "$PRG0")
+    
+source "$PRGDIR"/.venv/bin/activate
+# Source environment variables if .env exists
+[[ -f "$PRGDIR"/.env ]] && source "$PRGDIR"/.env
 
-# Get the directory of the script
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-
-# Activate virtual environment if it exists
-if [[ -f "${SCRIPT_DIR}/.venv/bin/activate" ]]; then
-  source "${SCRIPT_DIR}/.venv/bin/activate"
-  echo -e "${GREEN}Activated virtual environment${NC}"
-fi
-
-# Add the script directory to PYTHONPATH to ensure module can be found
-export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
-
-# Check if the transcribe_pkg module is available
-if ! python -c "import transcribe_pkg" &>/dev/null; then
-  echo -e "${RED}Error: transcribe_pkg module not found${NC}"
-  echo "Make sure the package is installed or in your PYTHONPATH"
-  echo "Current PYTHONPATH: ${PYTHONPATH}"
-  echo "Try: cd ${SCRIPT_DIR} && source .venv/bin/activate"
-  exit 1
-fi
-
-# Execute the main transcribe command directly
-python -c "from transcribe_pkg.cli.commands import transcribe_command; import sys; sys.exit(transcribe_command())" "$@"
+"$PRGDIR"/"$PRG".py "$@"
 
 #fin
