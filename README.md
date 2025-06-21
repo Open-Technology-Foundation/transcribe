@@ -23,7 +23,7 @@ The easiest way to install is using the provided installation script:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/transcribe.git
+git clone https://github.com/Open-Technology-Foundation/transcribe.git
 cd transcribe
 
 # Local installation (in the current directory)
@@ -47,7 +47,7 @@ If you prefer to install manually, follow these steps:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/transcribe.git
+git clone https://github.com/Open-Technology-Foundation/transcribe.git
 cd transcribe
 
 # Create and activate a virtual environment
@@ -66,8 +66,8 @@ chmod +x transcribe clean-transcript create-sentences
 For system-wide installation, you can install the package and create symlinks to the commands:
 
 ```bash
-# Clone the repository
-sudo git clone https://github.com/yourusername/transcribe.git /usr/share/transcribe
+# Clone the repository  
+sudo git clone https://github.com/Open-Technology-Foundation/transcribe.git /usr/share/transcribe
 cd /usr/share/transcribe
 
 # Create and activate a virtual environment
@@ -161,19 +161,19 @@ Logging Options:
 
 Examples:
   # Basic transcription
-  transcribe-new audio_file.mp3
+  transcribe audio_file.mp3
   
   # Advanced transcription with processing options
-  transcribe-new audio_file.mp3 -o transcript.txt --content-aware --parallel --cache
+  transcribe audio_file.mp3 -o transcript.txt --content-aware --parallel --cache
   
   # Transcription with context hints
-  transcribe-new audio_file.mp3 -c "philosophy,science" -m gpt-4o
+  transcribe audio_file.mp3 -c "philosophy,science" -m gpt-4o
   
   # Subtitles generation
-  transcribe-new audio_file.mp3 --srt
+  transcribe audio_file.mp3 --srt
   
   # Use custom models
-  transcribe-new audio_file.mp3 -W gpt-4o-mini-transcribe -m gpt-4o
+  transcribe audio_file.mp3 -W gpt-4o-mini-transcribe -m gpt-4o
 ```
 
 ### Clean Transcript

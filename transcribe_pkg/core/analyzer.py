@@ -11,7 +11,7 @@ from typing import Dict, List, Any, Optional, Tuple, Union
 import json
 
 from transcribe_pkg.utils.logging_utils import get_logger
-from transcribe_pkg.utils.api_utils import OpenAIClient, APIError
+from transcribe_pkg.utils.api_utils import OpenAIClient, APIError, call_llm
 from transcribe_pkg.utils.prompts import PromptManager
 
 class ContentAnalyzer:
@@ -164,9 +164,9 @@ Look at the structure, language, and patterns to classify the text into exactly 
 
 Output ONLY the category name, and nothing else.
 """
-            response = self.api_client.chat_completion(
-                system_prompt=system_prompt,
+            response = call_llm(
                 user_prompt=text[:3000],
+                system_prompt=system_prompt,
                 model=self.model,
                 temperature=0.0,
                 max_tokens=20
@@ -391,9 +391,9 @@ class SpecializedProcessor:
         
         # Process text with specialized prompt
         try:
-            response = self.api_client.chat_completion(
-                system_prompt=system_prompt,
+            response = call_llm(
                 user_prompt=text,
+                system_prompt=system_prompt,
                 model=model,
                 temperature=temperature,
                 max_tokens=4096
@@ -445,9 +445,9 @@ class SpecializedProcessor:
         
         # Generate summary
         try:
-            response = self.api_client.chat_completion(
-                system_prompt=system_prompt,
+            response = call_llm(
                 user_prompt=text,
+                system_prompt=system_prompt,
                 model=model,
                 temperature=0.0,
                 max_tokens=1000

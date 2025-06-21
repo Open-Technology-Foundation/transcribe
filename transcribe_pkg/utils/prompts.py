@@ -15,7 +15,7 @@ import logging
 from typing import Dict, Optional, Any, List
 import re
 
-from transcribe_pkg.utils.api_utils import OpenAIClient, APIError
+from transcribe_pkg.utils.api_utils import OpenAIClient, APIError, call_llm
 from transcribe_pkg.utils.logging_utils import get_logger
 
 class PromptManager:
@@ -292,9 +292,9 @@ Make no other commentary or preamble. Just output the language code.
         """
         system_prompt = self.get_template('context_extraction')
         try:
-            response = self.api_client.chat_completion(
-                system_prompt=system_prompt,
+            response = call_llm(
                 user_prompt=text,
+                system_prompt=system_prompt,
                 model=model,
                 temperature=0.0,
                 max_tokens=100
@@ -317,9 +317,9 @@ Make no other commentary or preamble. Just output the language code.
         """
         system_prompt = self.get_template('language_detection')
         try:
-            response = self.api_client.chat_completion(
-                system_prompt=system_prompt,
+            response = call_llm(
                 user_prompt=text,
+                system_prompt=system_prompt,
                 model=model,
                 temperature=0.0,
                 max_tokens=50
@@ -342,9 +342,9 @@ Make no other commentary or preamble. Just output the language code.
         """
         system_prompt = self.get_template('context_summary')
         try:
-            response = self.api_client.chat_completion(
-                system_prompt=system_prompt,
+            response = call_llm(
                 user_prompt=text,
+                system_prompt=system_prompt,
                 model=model,
                 temperature=0.0,
                 max_tokens=1000

@@ -133,6 +133,8 @@ def split_text_for_processing(
     """
     Split text into chunks for efficient processing, preserving sentence boundaries.
     
+    Optimized O(n) algorithm that processes text incrementally without redundant calculations.
+    
     Args:
         text (str): Text to split
         max_chunk_size (int, optional): Maximum chunk size in bytes. Defaults to 3000.
@@ -147,55 +149,71 @@ def split_text_for_processing(
     # Ensure NLTK data is available
     _ensure_nltk_data()
     
-    chunks = []
-    remaining_text = text
+    # Pre-compute all sentences once at the beginning - O(n) operation
+    all_sentences = create_sentences(text, max_sentence_length=max_chunk_size//2)
     
-    while remaining_text:
-        # Extract sentences from the current position
-        sentences = create_sentences(remaining_text, max_sentence_length=max_chunk_size//2)
-        
-        if not sentences:
-            # Handle case where no complete sentences could be created
-            chunks.append(remaining_text[:max_chunk_size])
-            remaining_text = remaining_text[max_chunk_size:]
-            continue
-            
-        # Build a chunk up to max_chunk_size
+    if not all_sentences:
+        # No sentences could be created, split by raw chunks
+        chunks = []
+        for i in range(0, len(text), max_chunk_size):
+            chunks.append(text[i:i + max_chunk_size])
+        return chunks
+    
+    # Pre-compute sentence lengths to avoid recalculation - O(n) operation
+    sentence_lengths = [len(sentence) for sentence in all_sentences]
+    sentence_byte_lengths = [len(sentence.encode('utf-8')) for sentence in all_sentences]
+    
+    chunks = []
+    sentence_index = 0
+    total_sentences = len(all_sentences)
+    
+    while sentence_index < total_sentences:
         current_chunk = ""
-        used_sentences = 0
+        current_byte_size = 0
+        chunk_start_index = sentence_index
         
-        for sentence in sentences:
-            if len((current_chunk + sentence).encode('utf-8')) <= max_chunk_size:
+        # Build chunk by adding sentences until we hit the size limit
+        while sentence_index < total_sentences:
+            sentence = all_sentences[sentence_index]
+            sentence_byte_size = sentence_byte_lengths[sentence_index]
+            
+            # Check if adding this sentence would exceed the limit
+            if current_byte_size + sentence_byte_size <= max_chunk_size:
                 current_chunk += sentence
-                used_sentences += 1
+                current_byte_size += sentence_byte_size
+                sentence_index += 1
             else:
                 break
-                
-        if not current_chunk:
-            # If we couldn't fit any sentence, take a raw chunk
+        
+        # If we couldn't fit any sentence, force-add the first one to avoid infinite loop
+        if not current_chunk and sentence_index < total_sentences:
             logger = get_logger(__name__)
-            logger.warning(f"Could not fit any sentence within chunk size limit. Using raw chunk.")
-            chunks.append(remaining_text[:max_chunk_size])
-            remaining_text = remaining_text[max_chunk_size:]
-        else:
-            # Add the chunk and remove processed sentences from remaining text
+            logger.warning(f"Sentence exceeds max_chunk_size, force-adding to avoid infinite loop")
+            current_chunk = all_sentences[sentence_index]
+            sentence_index += 1
+        
+        if current_chunk:
             chunks.append(current_chunk)
+        
+        # Handle overlap by backing up some sentences
+        if overlap > 0 and len(chunks) > 1:
+            # Calculate how many sentences to back up for overlap
+            overlap_bytes = 0
+            overlap_sentences = 0
             
-            # Calculate how much text we've processed
-            processed_text_length = 0
-            for i in range(used_sentences):
-                processed_text_length += len(sentences[i])
-                
-            # Move past the processed text, considering overlap
-            if processed_text_length > overlap:
-                move_to = processed_text_length - overlap
-                remaining_text = remaining_text[move_to:]
-            elif len(remaining_text) > processed_text_length:
-                # If we can't create a proper overlap, just advance a bit
-                remaining_text = remaining_text[processed_text_length//2:]
-            else:
-                # We're done
-                remaining_text = ""
+            # Work backwards from current position to find overlap
+            for i in range(sentence_index - 1, chunk_start_index - 1, -1):
+                if overlap_bytes + sentence_byte_lengths[i] <= overlap:
+                    overlap_bytes += sentence_byte_lengths[i]
+                    overlap_sentences += 1
+                else:
+                    break
+            
+            # Back up by the overlap amount, but ensure we always make forward progress
+            # At minimum, advance by 1 sentence to prevent infinite loops
+            max_backup = sentence_index - chunk_start_index - 1
+            actual_backup = min(overlap_sentences, max_backup)
+            sentence_index -= actual_backup
     
     return chunks
 

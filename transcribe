@@ -10,6 +10,6 @@ source "$PRGDIR"/.venv/bin/activate
 # Source environment variables if .env exists
 [[ -f "$PRGDIR"/.env ]] && source "$PRGDIR"/.env
 
-"$PRGDIR"/"$PRG".py "$@"
+transcribe "$@"
 
 #fin

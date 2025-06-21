@@ -18,7 +18,7 @@ import logging
 from typing import Dict, List, Optional, Any, Tuple
 import sys
 
-from transcribe_pkg.utils.api_utils import OpenAIClient, APIError
+from transcribe_pkg.utils.api_utils import OpenAIClient, APIError, call_llm
 from transcribe_pkg.utils.logging_utils import get_logger
 from transcribe_pkg.utils.text_utils import create_sentences, create_paragraphs
 from transcribe_pkg.utils.prompts import PromptManager
@@ -280,9 +280,9 @@ class TranscriptProcessor:
             # Process chunk based on content type
             if specialized_prompt and content_analysis:
                 try:
-                    result = self.api_client.chat_completion(
-                        system_prompt=specialized_prompt,
+                    result = call_llm(
                         user_prompt=chunk,
+                        system_prompt=specialized_prompt,
                         model=self.model,
                         temperature=self.temperature,
                         max_tokens=self.max_tokens
@@ -473,9 +473,9 @@ class TranscriptProcessor:
         
         try:
             # Call the OpenAI API
-            response = self.api_client.chat_completion(
-                system_prompt=system_prompt,
+            response = call_llm(
                 user_prompt=chunk,
+                system_prompt=system_prompt,
                 model=self.model,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens
@@ -530,5 +530,82 @@ class TranscriptProcessor:
         remaining_text = text[chunk_position:] if chunk_position < len(text) else ''
         
         return clean_chunk, remaining_text
+
+def process_transcript(
+    input_text: str,
+    model: str = "gpt-4o",
+    max_chunk_size: int = 3000,
+    temperature: float = 0.1,
+    context: str = "",
+    language: str = "en"
+) -> str:
+    """
+    High-level function to process a transcript text.
+    
+    Args:
+        input_text: Raw transcript text to process
+        model: Model to use for processing
+        max_chunk_size: Maximum chunk size for processing
+        temperature: Temperature for generation
+        context: Context information for better processing
+        language: Language code
+        
+    Returns:
+        Processed transcript text
+        
+    Raises:
+        APIError: For API-related errors
+    """
+    processor = TranscriptProcessor(
+        model=model,
+        max_chunk_size=max_chunk_size,
+        temperature=temperature
+    )
+    
+    return processor.process(
+        text=input_text,
+        context=context,
+        language=language
+    )
+
+def _generate_text_with_continuation(
+    text: str,
+    model: str = "gpt-4o", 
+    max_tokens: int = 1000,
+    temperature: float = 0.1,
+    context: str = ""
+) -> str:
+    """
+    Internal function for text generation with continuation (used by tests).
+    
+    Args:
+        text: Input text to continue
+        model: Model to use for generation
+        max_tokens: Maximum tokens to generate
+        temperature: Temperature for generation  
+        context: Additional context for generation
+        
+    Returns:
+        Generated continuation text
+        
+    Raises:
+        APIError: For API-related errors
+    """
+    from transcribe_pkg.utils.api_utils import get_openai_client
+    
+    client = get_openai_client()
+    
+    # Build prompt
+    system_prompt = f"Continue the following text naturally. Context: {context}" if context else "Continue the following text naturally."
+    
+    response = call_llm(
+        user_prompt=text,
+        system_prompt=system_prompt,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens
+    )
+    
+    return response
 
 #fin

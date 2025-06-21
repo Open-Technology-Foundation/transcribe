@@ -18,6 +18,6 @@ if [[ -f "${SCRIPT_DIR}/.env" ]]; then
 fi
 
 # Run the create sentences command
-python3 -c "from transcribe_pkg.main import create_sentences_main; import sys; sys.exit(create_sentences_main())" "$@"
+create-sentences "$@"
 
 #fin

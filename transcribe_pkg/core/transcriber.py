@@ -443,4 +443,99 @@ class Transcriber:
             # For text-only output, just return the list of texts
             return [r if r else "" for r in results]
 
+def transcribe_audio_file(
+    audio_path: str,
+    output_file: Optional[str] = None,
+    context: str = "",
+    model: str = "gpt-4o",
+    language: Optional[str] = None,
+    parallel_processing: bool = False,
+    max_workers: int = 1,
+    chunk_size: int = 3000,
+    with_timestamps: bool = False
+) -> str:
+    """
+    High-level function to transcribe an audio file with optional post-processing.
+    
+    Args:
+        audio_path: Path to the audio file to transcribe
+        output_file: Optional output file path (if None, returns text only)
+        context: Context information for better transcription quality
+        model: Model to use for post-processing
+        language: Language code for transcription
+        parallel_processing: Enable parallel processing
+        max_workers: Number of workers for parallel processing
+        chunk_size: Maximum chunk size for processing
+        with_timestamps: Include timestamp information
+        
+    Returns:
+        Transcribed text
+        
+    Raises:
+        APIError: For API-related errors
+        FileNotFoundError: If audio file doesn't exist
+    """
+    # Initialize transcriber
+    transcriber = Transcriber(
+        language=language,
+        max_workers=max_workers if parallel_processing else 1
+    )
+    
+    # Transcribe the audio
+    transcript_result = transcriber.transcribe(
+        audio_path=audio_path,
+        prompt=context,
+        with_timestamps=with_timestamps,
+        max_workers=max_workers if parallel_processing else 1
+    )
+    
+    # Extract text from result
+    if with_timestamps and isinstance(transcript_result, dict):
+        transcribed_text = transcript_result["text"]
+    elif isinstance(transcript_result, list):
+        transcribed_text = " ".join(transcript_result)
+    else:
+        transcribed_text = str(transcript_result)
+    
+    # Post-process if we have context or advanced processing is requested
+    if context and model != "none":
+        try:
+            from transcribe_pkg.core.processor import TranscriptProcessor
+            processor = TranscriptProcessor(
+                model=model,
+                max_chunk_size=chunk_size
+            )
+            processed_text = processor.process(
+                text=transcribed_text,
+                context=context,
+                use_parallel=parallel_processing
+            )
+            final_text = processed_text
+        except ImportError:
+            # If processor not available, use raw transcription
+            final_text = transcribed_text
+    else:
+        final_text = transcribed_text
+    
+    # Save to file if requested
+    if output_file:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(final_text)
+    
+    return final_text
+
+def process_transcript(input_text: str, **kwargs) -> str:
+    """
+    Alias function for transcript processing (used by tests).
+    
+    Args:
+        input_text: Text to process
+        **kwargs: Additional arguments passed to processor
+        
+    Returns:
+        Processed text
+    """
+    from transcribe_pkg.core.processor import process_transcript as proc_process_transcript
+    return proc_process_transcript(input_text, **kwargs)
+
 #fin

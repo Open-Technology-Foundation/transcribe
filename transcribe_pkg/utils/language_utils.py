@@ -63,7 +63,7 @@ def determine_language(input_text, model='gpt-4o-mini'):
   
   Make no other commentary or preamble. Just output the language code.
   """
-  lang = call_llm(systemprompt, input_text, model, 0, 50)
+  lang = call_llm(input_text, systemprompt, model, 0, 50)
   if 'Unknown' in get_language_name(lang):
     lang = 'en'
   return lang
