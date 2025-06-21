@@ -64,6 +64,7 @@ chmod +x transcribe clean-transcript create-sentences transcribe-parallel
   - `processor.py`: Post-processing and text improvement
   - `parallel.py`: Parallel processing implementation
   - `analyzer.py`: Content analysis and optimization
+  - `examples.py`: Example configurations and usage patterns
 
 - **`transcribe_pkg/utils/`**: Utility modules
   - `api_utils.py`: OpenAI API client and wrapper functions
@@ -71,6 +72,11 @@ chmod +x transcribe clean-transcript create-sentences transcribe-parallel
   - `text_utils.py`: Text processing and manipulation utilities
   - `config.py`: Configuration management
   - `logging_utils.py`: Logging setup and utilities
+  - `subtitle_utils.py`: SRT and VTT subtitle file generation
+  - `cache.py`: Caching system for API responses
+  - `progress.py`: Progress display utilities
+  - `prompts.py`: Prompt management and templates
+  - `language_utils.py`: Language detection and utilities
 
 - **`transcribe_pkg/cli/`**: Command-line interface
   - `commands.py`: CLI command implementations
@@ -204,9 +210,14 @@ The project uses a flexible configuration system supporting:
 Key environment variables:
 
 - `OPENAI_API_KEY`: OpenAI API key (required)
-- `TRANSCRIBE_CHUNK_LENGTH_MS`: Audio chunk length (default: 600000)
-- `TRANSCRIBE_MAX_CHUNK_SIZE`: Text chunk size for processing
-- `TRANSCRIBE_LOG_LEVEL`: Logging level (INFO, DEBUG, etc.)
+- `OPENAI_COMPLETION_MODEL`: Default model for post-processing (default: gpt-4o)
+- `OPENAI_SUMMARY_MODEL`: Default model for summaries (default: gpt-4o-mini)
+- `TRANSCRIBE_CHUNK_LENGTH_MS`: Audio chunk length in milliseconds (default: 600000)
+- `TRANSCRIBE_MAX_CHUNK_SIZE`: Text chunk size for processing (default: 3000)
+- `TRANSCRIBE_PARALLEL`: Enable parallel processing (true/false, default: true)
+- `TRANSCRIBE_MAX_WORKERS`: Maximum number of workers (default: 4)
+- `TRANSCRIBE_TEMP_DIR`: Directory for temporary files (default: system temp)
+- `TRANSCRIBE_LOG_LEVEL`: Logging level (INFO, DEBUG, etc., default: INFO)
 
 ## Performance Optimization
 
@@ -331,6 +342,6 @@ For development questions:
 
 ---
 
-*This development guide was last updated on January 21st, 2025*
+*This development guide was updated for accuracy during comprehensive documentation overhaul*
 
 #fin
