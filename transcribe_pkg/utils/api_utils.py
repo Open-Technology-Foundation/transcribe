@@ -293,7 +293,7 @@ def call_llm(user_prompt: str, system_prompt: Optional[str] = None, model: str =
     
     # Use global openai_client if available (for testing), otherwise get a new one
     global openai_client
-    if openai_client is not None:
+    if openai_client is not None and hasattr(openai_client, 'chat'):
         # For testing - use the mocked client directly with standard OpenAI interface
         messages = []
         if system_prompt:
