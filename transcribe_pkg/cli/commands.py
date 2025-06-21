@@ -28,19 +28,19 @@ def transcribe_command(args: Optional[List[str]] = None) -> int:
     epilog = """
 Examples:
   # Basic transcription
-  transcribe-new audio_file.mp3
+  transcribe audio_file.mp3
   
   # Advanced transcription with processing options
-  transcribe-new audio_file.mp3 -o transcript.txt --content-aware --parallel --cache
+  transcribe audio_file.mp3 -o transcript.txt --content-aware --parallel --cache
   
   # Transcription with context hints
-  transcribe-new audio_file.mp3 -c "philosophy,science" -m gpt-4o
+  transcribe audio_file.mp3 -c "philosophy,science" -m gpt-4o
   
   # Subtitles generation
-  transcribe-new audio_file.mp3 --srt
+  transcribe audio_file.mp3 --srt
   
   # Use custom models
-  transcribe-new audio_file.mp3 -W gpt-4o-mini-transcribe -m gpt-4o
+  transcribe audio_file.mp3 -W gpt-4o-mini-transcribe -m gpt-4o
     """
     
     parser = argparse.ArgumentParser(
