@@ -59,7 +59,7 @@ pip install -r requirements.txt
 pip install -e .
 
 # Make wrapper scripts executable
-chmod +x transcribe transcribe-parallel clean-transcript create-sentences
+chmod +x transcribe clean-transcript create-sentences
 ```
 
 #### System-wide Installation
@@ -75,11 +75,10 @@ sudo .venv/bin/pip install -r requirements.txt
 sudo .venv/bin/pip install -e .
 
 # Make scripts executable
-sudo chmod +x transcribe transcribe-parallel clean-transcript create-sentences
+sudo chmod +x transcribe clean-transcript create-sentences
 
 # Create system-wide symlinks
 sudo ln -sf /usr/share/transcribe/transcribe /usr/local/bin/transcribe
-sudo ln -sf /usr/share/transcribe/transcribe-parallel /usr/local/bin/transcribe-parallel
 sudo ln -sf /usr/share/transcribe/clean-transcript /usr/local/bin/clean-transcript
 sudo ln -sf /usr/share/transcribe/create-sentences /usr/local/bin/create-sentences
 ```
@@ -108,10 +107,7 @@ transcribe audio_file.mp3 --vtt
 ### Large File Processing
 
 ```bash
-# Use optimized parallel processing for large files
-transcribe-parallel large_audio.mp3 -o transcript.txt
-
-# Manual parallel configuration
+# Use parallel processing for large files
 transcribe audio_file.mp3 -w 4 --parallel --max-parallel-workers 4
 ```
 
@@ -194,6 +190,7 @@ Options:
   -L, --input-language LANG    Input language (translate to English if specified)
   -c, --context TEXT           Domain-specific context (e.g., medical,legal)
   -m, --model MODEL            OpenAI model to use (default: gpt-4o)
+  --summary-model MODEL        OpenAI model for summaries (default: gpt-4o-mini)
   -M, --max-tokens N           Maximum tokens (default: 4096)
   -s, --max-chunk-size N       Maximum chunk size for processing (default: 3000)
   -t, --temperature N          Temperature for generation (default: 0.05)
@@ -271,14 +268,7 @@ You can specify configuration options in a JSON file:
 
 ### Parallel Processing
 
-For large audio files (>30 minutes), use the optimized parallel wrapper:
-
-```bash
-# Automatically configures optimal parallel settings
-transcribe-parallel large_audio.mp3 -o transcript.txt
-```
-
-Manual parallel configuration:
+For large audio files (>30 minutes), configure parallel processing:
 
 ```bash
 # Parallel transcription workers

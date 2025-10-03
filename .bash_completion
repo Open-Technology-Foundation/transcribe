@@ -1,76 +1,111 @@
 #!/bin/bash
 
 # Bash completion for transcribe tools
-# Source this file or add to ~/.bashrc
+# Source this file or add to ~/.bashrc:
+#   source /path/to/.bash_completion
+# Or copy to /etc/bash_completion.d/ for system-wide installation
 
 _transcribe_complete() {
   local cur prev opts
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  
-  # Common options for transcribe and transcribe-parallel
+
+  # All options for transcribe and transcribe-parallel
   local transcribe_opts="-h --help -o --output -O --output-to-stdout -P --no-post-processing -l --chunk-length -L --input-language -c --context -W --transcribe-model -m --model -s --max-chunk-size -t --temperature -p --prompt -w --max-workers --summary-model --auto-context --raw --auto-language --parallel --max-parallel-workers --cache --content-aware --clear-cache -T --timestamps --srt --vtt -v --verbose -d --debug"
-  
-  # Model names
-  local models="gpt-4o gpt-4o-mini whisper-1 gpt-4o-mini-transcribe"
-  
-  # Audio file extensions
-  local audio_exts="mp3 wav m4a flac ogg wma aac webm mp4 mov avi mkv"
-  
+
+  # OpenAI model names (transcription and LLM)
+  local transcribe_models="whisper-1 gpt-4o-mini-transcribe"
+  local llm_models="gpt-4o gpt-4o-mini o1-preview o1-mini"
+  local all_models="${transcribe_models} ${llm_models}"
+
+  # Comprehensive audio/video file extensions
+  local audio_exts="mp3 wav m4a flac ogg opus wma aac alac ape webm mp4 mov avi mkv flv wmv m4v 3gp mpg mpeg"
+
+  # ISO 639-1 language codes (expanded list)
+  local lang_codes="en es fr de it pt ru ja zh ar hi ko nl pl sv da fi no tr cs el he id ms th vi uk ro hu sk bg hr sr lt lv et sl"
+
   case "${prev}" in
     -o|--output)
-      # Complete with .txt files and allow typing new names
+      # Complete with .txt files and directories
       COMPREPLY=($(compgen -f -X '!*.txt' -- "${cur}"))
+      compopt -o filenames 2>/dev/null
       return 0
       ;;
-    -m|--model|-W|--transcribe-model|--summary-model)
-      COMPREPLY=($(compgen -W "${models}" -- "${cur}"))
+    -W|--transcribe-model)
+      # Transcription models only
+      COMPREPLY=($(compgen -W "${transcribe_models}" -- "${cur}"))
+      return 0
+      ;;
+    -m|--model|--summary-model)
+      # LLM models for post-processing
+      COMPREPLY=($(compgen -W "${llm_models}" -- "${cur}"))
       return 0
       ;;
     -L|--input-language)
-      # Common language codes
-      local langs="en es fr de it pt ru ja zh ar hi"
-      COMPREPLY=($(compgen -W "${langs}" -- "${cur}"))
+      # ISO language codes
+      COMPREPLY=($(compgen -W "${lang_codes}" -- "${cur}"))
       return 0
       ;;
     -c|--context)
-      # Common context types
-      local contexts="medical legal technical academic business scientific philosophy neuroscience"
+      # Domain-specific context types
+      local contexts="medical legal technical academic business scientific philosophy neuroscience mathematics physics chemistry biology economics finance history literature music art engineering psychology sociology political"
       COMPREPLY=($(compgen -W "${contexts}" -- "${cur}"))
       return 0
       ;;
-    -l|--chunk-length|-s|--max-chunk-size|-t|--temperature|-w|--max-workers|--max-parallel-workers|-m|--min-sentences|-M|--max-sentences|--max-sentence-length)
-      # Numeric values - no completion
+    -l|--chunk-length)
+      # Suggest common chunk lengths in milliseconds
+      local chunk_sizes="300000 600000 900000 1200000"
+      COMPREPLY=($(compgen -W "${chunk_sizes}" -- "${cur}"))
+      return 0
+      ;;
+    -s|--max-chunk-size)
+      # Suggest common chunk sizes for text processing
+      local text_chunks="1000 2000 3000 4000 5000"
+      COMPREPLY=($(compgen -W "${text_chunks}" -- "${cur}"))
+      return 0
+      ;;
+    -t|--temperature)
+      # Suggest common temperature values
+      local temps="0.0 0.05 0.1 0.2 0.3 0.5 0.7 1.0"
+      COMPREPLY=($(compgen -W "${temps}" -- "${cur}"))
+      return 0
+      ;;
+    -w|--max-workers|--max-parallel-workers)
+      # Suggest worker counts based on CPU cores
+      local workers="1 2 4 8 16"
+      COMPREPLY=($(compgen -W "${workers}" -- "${cur}"))
       return 0
       ;;
     -p|--prompt)
-      # No completion for prompts
+      # No completion for free-form prompts
       return 0
       ;;
     *)
       if [[ ${cur} == -* ]]; then
+        # Complete option flags
         COMPREPLY=($(compgen -W "${transcribe_opts}" -- "${cur}"))
       else
-        # Complete audio files
+        # Complete audio/video files and directories
         COMPREPLY=($(compgen -f -- "${cur}"))
-        # Filter to audio extensions if we have a partial match
+        # Filter to audio/video extensions
         if [[ -n "${cur}" ]]; then
           local filtered=()
           for file in "${COMPREPLY[@]}"; do
-            if [[ -f "${file}" ]]; then
+            if [[ -d "${file}" ]]; then
+              filtered+=("${file}")
+            elif [[ -f "${file}" ]]; then
               local ext="${file##*.}"
               if [[ " ${audio_exts} " =~ " ${ext,,} " ]]; then
                 filtered+=("${file}")
               fi
-            elif [[ -d "${file}" ]]; then
-              filtered+=("${file}")
             fi
           done
           if [[ ${#filtered[@]} -gt 0 ]]; then
             COMPREPLY=("${filtered[@]}")
           fi
         fi
+        compopt -o filenames 2>/dev/null
       fi
       ;;
   esac
@@ -81,38 +116,65 @@ _clean_transcript_complete() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  
-  local opts="-h --help -L --input-language -c --context -m --model -M --max-tokens -s --max-chunk-size -t --temperature -o --output -v --verbose -d --debug"
-  local models="gpt-4o gpt-4o-mini"
-  
+
+  # All options for clean-transcript
+  local opts="-h --help -L --input-language -c --context -m --model --summary-model -M --max-tokens -s --max-chunk-size -t --temperature -o --output -v --verbose -d --debug"
+
+  # LLM models for text processing
+  local models="gpt-4o gpt-4o-mini o1-preview o1-mini"
+
+  # ISO 639-1 language codes (expanded list)
+  local lang_codes="en es fr de it pt ru ja zh ar hi ko nl pl sv da fi no tr cs el he id ms th vi uk ro hu sk bg hr sr lt lv et sl"
+
   case "${prev}" in
     -o|--output)
+      # Complete with .txt files and directories
       COMPREPLY=($(compgen -f -X '!*.txt' -- "${cur}"))
+      compopt -o filenames 2>/dev/null
       return 0
       ;;
-    -m|--model)
+    -m|--model|--summary-model)
+      # LLM models for processing
       COMPREPLY=($(compgen -W "${models}" -- "${cur}"))
       return 0
       ;;
     -L|--input-language)
-      local langs="en es fr de it pt ru ja zh ar hi"
-      COMPREPLY=($(compgen -W "${langs}" -- "${cur}"))
+      # ISO language codes
+      COMPREPLY=($(compgen -W "${lang_codes}" -- "${cur}"))
       return 0
       ;;
     -c|--context)
-      local contexts="medical legal technical academic business scientific philosophy neuroscience"
+      # Domain-specific context types
+      local contexts="medical legal technical academic business scientific philosophy neuroscience mathematics physics chemistry biology economics finance history literature music art engineering psychology sociology political"
       COMPREPLY=($(compgen -W "${contexts}" -- "${cur}"))
       return 0
       ;;
-    -M|--max-tokens|-s|--max-chunk-size|-t|--temperature)
+    -M|--max-tokens)
+      # Suggest common token limits
+      local token_limits="1024 2048 4096 8192 16384"
+      COMPREPLY=($(compgen -W "${token_limits}" -- "${cur}"))
+      return 0
+      ;;
+    -s|--max-chunk-size)
+      # Suggest common chunk sizes
+      local chunk_sizes="1000 2000 3000 4000 5000"
+      COMPREPLY=($(compgen -W "${chunk_sizes}" -- "${cur}"))
+      return 0
+      ;;
+    -t|--temperature)
+      # Suggest common temperature values
+      local temps="0.0 0.05 0.1 0.2 0.3 0.5 0.7 1.0"
+      COMPREPLY=($(compgen -W "${temps}" -- "${cur}"))
       return 0
       ;;
     *)
       if [[ ${cur} == -* ]]; then
+        # Complete option flags
         COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
       else
         # Complete text files for input
         COMPREPLY=($(compgen -f -X '!*.txt' -- "${cur}"))
+        compopt -o filenames 2>/dev/null
       fi
       ;;
   esac
@@ -123,15 +185,17 @@ _language_codes_complete() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  
+
+  # Options for language-codes utility
   local opts="-h --help -v --verbose -d --debug"
-  
+
   if [[ ${cur} == -* ]]; then
     COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
   else
-    # Complete common language names/codes
-    local langs="english spanish french german italian portuguese russian japanese chinese arabic hindi"
-    COMPREPLY=($(compgen -W "${langs}" -- "${cur}"))
+    # Complete common language names and ISO codes
+    local lang_names="english spanish french german italian portuguese russian japanese chinese arabic hindi korean dutch polish swedish danish finnish norwegian turkish czech greek hebrew indonesian malay thai vietnamese ukrainian romanian hungarian slovak bulgarian croatian serbian lithuanian latvian estonian slovenian"
+    local lang_codes="en es fr de it pt ru ja zh ar hi ko nl pl sv da fi no tr cs el he id ms th vi uk ro hu sk bg hr sr lt lv et sl"
+    COMPREPLY=($(compgen -W "${lang_names} ${lang_codes}" -- "${cur}"))
   fi
 }
 
@@ -140,33 +204,56 @@ _create_sentences_complete() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  
+
+  # All options for create-sentences
   local opts="-h --help -o --output -p --paragraphs -m --min-sentences -M --max-sentences -s --max-sentence-length -v --verbose -d --debug"
-  
+
   case "${prev}" in
     -o|--output)
+      # Complete with .txt files and directories
       COMPREPLY=($(compgen -f -X '!*.txt' -- "${cur}"))
+      compopt -o filenames 2>/dev/null
       return 0
       ;;
-    -m|--min-sentences|-M|--max-sentences|-s|--max-sentence-length)
+    -m|--min-sentences)
+      # Suggest common minimum sentence counts
+      local min_counts="1 2 3 4 5"
+      COMPREPLY=($(compgen -W "${min_counts}" -- "${cur}"))
+      return 0
+      ;;
+    -M|--max-sentences)
+      # Suggest common maximum sentence counts
+      local max_counts="5 8 10 15 20"
+      COMPREPLY=($(compgen -W "${max_counts}" -- "${cur}"))
+      return 0
+      ;;
+    -s|--max-sentence-length)
+      # Suggest common sentence length limits
+      local lengths="1000 2000 3000 4000 5000"
+      COMPREPLY=($(compgen -W "${lengths}" -- "${cur}"))
       return 0
       ;;
     *)
       if [[ ${cur} == -* ]]; then
+        # Complete option flags
         COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
       else
         # Complete text files for input
         COMPREPLY=($(compgen -f -X '!*.txt' -- "${cur}"))
+        compopt -o filenames 2>/dev/null
       fi
       ;;
   esac
 }
 
-# Register completion functions
+# Register completion functions for all transcribe tools
 complete -F _transcribe_complete transcribe
 complete -F _transcribe_complete transcribe-parallel
 complete -F _clean_transcript_complete clean-transcript
 complete -F _language_codes_complete language-codes
 complete -F _create_sentences_complete create-sentences
+
+# Enable case-insensitive completion (optional, user can enable if desired)
+# bind 'set completion-ignore-case on'
 
 #fin
