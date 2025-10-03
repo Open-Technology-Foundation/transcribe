@@ -3,16 +3,17 @@
 Language code utilities for the transcribe package.
 """
 
-from typing import List, Tuple
+import functools
 import langcodes
 from transcribe_pkg.utils.api_utils import call_llm
 
-def get_language_codes() -> List[Tuple[str, str]]:
+@functools.cache
+def get_language_codes() -> list[tuple[str, str]]:
   """
   Retrieve a sorted list of two-letter language codes and their names.
 
   Returns:
-    List[Tuple[str, str]]: A list of tuples containing (code, name) pairs.
+    list[tuple[str, str]]: A list of tuples containing (code, name) pairs.
   """
   languages = []
   for lang_code in langcodes.LANGUAGE_ALPHA3:
@@ -29,6 +30,7 @@ def display_all_languages() -> None:
   for code, name in languages:
     print(f"{code} {name}")
 
+@functools.lru_cache(maxsize=256)
 def get_language_name(code: str) -> str:
   """
   Get the language name for a given two-letter language code.

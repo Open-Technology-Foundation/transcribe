@@ -18,7 +18,8 @@ to API limitations and readability concerns.
 import logging
 import nltk
 import re
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any
+from collections import Counter
 from nltk.tokenize import sent_tokenize
 
 from transcribe_pkg.utils.logging_utils import get_logger
@@ -31,7 +32,7 @@ def _ensure_nltk_data():
     except LookupError:
         nltk.download('punkt', quiet=True)
 
-def create_sentences(text: str, *, max_sentence_length: int = 3000) -> List[str]:
+def create_sentences(text: str, *, max_sentence_length: int = 3000) -> list[str]:
     """
     Create logical sentences from text, respecting maximum byte length.
     
@@ -58,21 +59,23 @@ def create_sentences(text: str, *, max_sentence_length: int = 3000) -> List[str]
             sentences.append(sentence.replace('\n', ' ').rstrip())
         else:
             # Handle oversized sentences by splitting into words
-            newsent = ''
+            current_words = []
             words = sentence.replace('\n', ' ').split(' ')
-            
+
             for word in words:
                 # Check if adding this word would exceed the limit
-                if len((newsent + word).encode('utf-8')) >= max_sentence_length:
-                    sentences.append(newsent.rstrip())
-                    newsent = ''
-                    
-                # Add word to the current sentence fragment
-                newsent += word + ' '
-                
+                test_sent = ' '.join(current_words + [word])
+                if len(test_sent.encode('utf-8')) >= max_sentence_length:
+                    if current_words:  # Only append if we have accumulated words
+                        sentences.append(' '.join(current_words))
+                        current_words = []
+
+                # Add word to the current fragment
+                current_words.append(word)
+
             # Don't forget any remaining text
-            if newsent.strip():
-                sentences.append(newsent.rstrip())
+            if current_words:
+                sentences.append(' '.join(current_words))
     
     return sentences
 
@@ -126,10 +129,10 @@ def create_paragraphs(
     return '\n\n'.join(paragraphs)
 
 def split_text_for_processing(
-    text: str, 
+    text: str,
     max_chunk_size: int = 3000,
     overlap: int = 200
-) -> List[str]:
+) -> list[str]:
     """
     Split text into chunks for efficient processing, preserving sentence boundaries.
     
@@ -168,32 +171,32 @@ def split_text_for_processing(
     total_sentences = len(all_sentences)
     
     while sentence_index < total_sentences:
-        current_chunk = ""
+        current_sentences = []
         current_byte_size = 0
         chunk_start_index = sentence_index
-        
+
         # Build chunk by adding sentences until we hit the size limit
         while sentence_index < total_sentences:
             sentence = all_sentences[sentence_index]
             sentence_byte_size = sentence_byte_lengths[sentence_index]
-            
+
             # Check if adding this sentence would exceed the limit
             if current_byte_size + sentence_byte_size <= max_chunk_size:
-                current_chunk += sentence
+                current_sentences.append(sentence)
                 current_byte_size += sentence_byte_size
                 sentence_index += 1
             else:
                 break
-        
+
         # If we couldn't fit any sentence, force-add the first one to avoid infinite loop
-        if not current_chunk and sentence_index < total_sentences:
+        if not current_sentences and sentence_index < total_sentences:
             logger = get_logger(__name__)
             logger.warning(f"Sentence exceeds max_chunk_size, force-adding to avoid infinite loop")
-            current_chunk = all_sentences[sentence_index]
+            current_sentences.append(all_sentences[sentence_index])
             sentence_index += 1
-        
-        if current_chunk:
-            chunks.append(current_chunk)
+
+        if current_sentences:
+            chunks.append(''.join(current_sentences))
         
         # Handle overlap by backing up some sentences
         if overlap > 0 and len(chunks) > 1:
@@ -247,7 +250,7 @@ def clean_transcript_text(text: str) -> str:
     
     return text
 
-def extract_key_topics(text: str, max_topics: int = 5) -> List[str]:
+def extract_key_topics(text: str, max_topics: int = 5) -> list[str]:
     """
     Extract key topics from text based on frequency and relevance.
     
@@ -266,26 +269,21 @@ def extract_key_topics(text: str, max_topics: int = 5) -> List[str]:
     
     # Convert to lowercase and tokenize
     words = re.findall(r'\b\w{3,}\b', text.lower())
-    
-    # Count word frequencies
-    word_counts = {}
-    for word in words:
-        if word not in word_counts:
-            word_counts[word] = 0
-        word_counts[word] += 1
-    
+
+    # Count word frequencies using Counter (efficient implementation)
+    word_counts = Counter(words)
+
     # Filter out common stopwords (simplified approach)
-    stopwords = {'the', 'and', 'that', 'this', 'with', 'for', 'from', 'have', 'you', 
-                'are', 'was', 'were', 'they', 'will', 'would', 'could', 'should', 
+    stopwords = {'the', 'and', 'that', 'this', 'with', 'for', 'from', 'have', 'you',
+                'are', 'was', 'were', 'they', 'will', 'would', 'could', 'should',
                 'what', 'when', 'where', 'which', 'there', 'their', 'then', 'than'}
-    
+
+    # Remove stopwords from counter
     for stopword in stopwords:
-        if stopword in word_counts:
-            del word_counts[stopword]
-    
-    # Sort by frequency and return top topics
-    topics = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
-    return [topic[0] for topic in topics[:max_topics]]
+        word_counts.pop(stopword, None)
+
+    # Use Counter's most_common method for efficient sorting
+    return [word for word, count in word_counts.most_common(max_topics)]
 
 def detect_language(text: str) -> str:
     """

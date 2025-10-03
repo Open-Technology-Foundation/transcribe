@@ -7,7 +7,7 @@ detecting content characteristics and applying appropriate strategies.
 """
 import re
 import logging
-from typing import Dict, List, Any, Optional, Tuple, Union
+from typing import Any
 import json
 
 from transcribe_pkg.utils.logging_utils import get_logger
@@ -25,10 +25,10 @@ class ContentAnalyzer:
     
     def __init__(
         self,
-        api_client: Optional[OpenAIClient] = None,
-        prompt_manager: Optional[PromptManager] = None,
+        api_client: OpenAIClient | None = None,
+        prompt_manager: PromptManager | None = None,
         model: str = "gpt-4o-mini",
-        logger: Optional[logging.Logger] = None
+        logger: logging.Logger | None = None
     ):
         """
         Initialize the content analyzer.
@@ -47,7 +47,7 @@ class ContentAnalyzer:
         )
         self.model = model
     
-    def analyze_content(self, text: str) -> Dict[str, Any]:
+    def analyze_content(self, text: str) -> dict[str, Any]:
         """
         Analyze content characteristics.
         
@@ -75,8 +75,8 @@ class ContentAnalyzer:
         return analysis
     
     def get_specialized_prompt(
-        self, 
-        analysis: Dict[str, Any],
+        self,
+        analysis: dict[str, Any],
         context: str = "",
         purpose: str = "clean"
     ) -> str:
@@ -127,12 +127,15 @@ class ContentAnalyzer:
         domains = analysis.get("domains", [])
         if domains and not context:
             context = ", ".join(domains)
+            self.logger.info(f"Auto-generated context from content: {context}")
         elif domains:
+            original_context = context
             context = context + ", " + ", ".join(domains)
-        
+            self.logger.info(f"Enhanced context: {original_context} + {', '.join(domains)} = {context}")
+
         # Get language from analysis
         language = analysis.get("language", "en")
-        
+
         # Generate the specialized prompt
         return self.prompt_manager.get_system_prompt(
             template_name=template_name,
@@ -152,36 +155,45 @@ class ContentAnalyzer:
         """
         # Try to use API for detection
         try:
-            system_prompt = """
-You are a content classifier that analyzes text to determine its type or genre.
-Look at the structure, language, and patterns to classify the text into exactly one of these categories:
+            system_prompt = """Classify the text into exactly ONE category.
 
-- dialogue: Conversation between two or more speakers, characterized by turns and speaker indicators
+Categories:
+- dialogue: Conversation between two or more speakers with turns and speaker indicators
 - technical: Technical content with specialized terminology, concepts, or procedures
-- speech: A monologue or address delivered to an audience, formal or informal
+- speech: Monologue or address delivered to an audience
 - lecture: Educational content with explanations of concepts and instructional tone
-- general: General narrative or explanatory content that doesn't fit the above categories
+- general: General narrative or explanatory content
 
-Output ONLY the category name, and nothing else.
-"""
+Respond with ONLY ONE WORD - the category name in lowercase (dialogue, technical, speech, lecture, or general). No explanation, no punctuation, just the single word."""
+
+            # Use minimal reasoning effort for GPT-5 models for faster classification
+            from transcribe_pkg.utils.api_utils import _is_reasoning_model
+            reasoning_effort = "minimal" if _is_reasoning_model(self.model) else None
+
             response = call_llm(
                 user_prompt=text[:3000],
                 system_prompt=system_prompt,
                 model=self.model,
                 temperature=0.0,
-                max_tokens=20
+                max_tokens=100,
+                reasoning_effort=reasoning_effort
             )
-            
+
             # Extract content type from response
             content_type = response.strip().lower()
-            
-            # Validate content type
-            valid_types = ["dialogue", "technical", "speech", "lecture", "general"]
-            if content_type in valid_types:
-                return content_type
-            
-            # Default to basic detection if API result is invalid
-            self.logger.debug(f"Invalid content type from API: {content_type}, using basic detection")
+
+            # Handle empty response
+            if not content_type:
+                self.logger.debug("Empty response from API for content type detection, using basic detection")
+                # Fall through to basic pattern detection
+            else:
+                # Validate content type
+                valid_types = ["dialogue", "technical", "speech", "lecture", "general"]
+                if content_type in valid_types:
+                    return content_type
+
+                # Default to basic detection if API result is invalid
+                self.logger.debug(f"Invalid content type from API: {content_type}, using basic detection")
         except Exception as e:
             self.logger.warning(f"Error detecting content type with API: {str(e)}")
         
@@ -283,7 +295,7 @@ Output ONLY the category name, and nothing else.
         
         return ratio
     
-    def _extract_domains(self, text: str) -> List[str]:
+    def _extract_domains(self, text: str) -> list[str]:
         """
         Extract domain-specific knowledge areas from the text.
         
@@ -296,12 +308,17 @@ Output ONLY the category name, and nothing else.
         # Use prompt manager to extract context
         try:
             context_str = self.prompt_manager.extract_context(text[:3000])
-            return [domain.strip() for domain in context_str.split(",")]
+            if not context_str:
+                self.logger.debug("Empty context string from extract_context, no domains extracted")
+                return []
+            domains = [domain.strip() for domain in context_str.split(",") if domain.strip()]
+            self.logger.debug(f"Extracted {len(domains)} domains: {domains}")
+            return domains
         except Exception as e:
             self.logger.warning(f"Error extracting domains: {str(e)}")
             return []
     
-    def _analyze_structure(self, text: str) -> Dict[str, Any]:
+    def _analyze_structure(self, text: str) -> dict[str, Any]:
         """
         Analyze the structural characteristics of the text.
         
@@ -334,9 +351,9 @@ class SpecializedProcessor:
     
     def __init__(
         self,
-        api_client: Optional[OpenAIClient] = None,
-        analyzer: Optional[ContentAnalyzer] = None,
-        logger: Optional[logging.Logger] = None
+        api_client: OpenAIClient | None = None,
+        analyzer: ContentAnalyzer | None = None,
+        logger: logging.Logger | None = None
     ):
         """
         Initialize the specialized processor.
@@ -357,7 +374,7 @@ class SpecializedProcessor:
         self,
         text: str,
         context: str = "",
-        language: Optional[str] = None,
+        language: str | None = None,
         model: str = "gpt-4o",
         temperature: float = 0.05
     ) -> str:
@@ -408,9 +425,9 @@ class SpecializedProcessor:
         self,
         text: str,
         context: str = "",
-        language: Optional[str] = None,
+        language: str | None = None,
         model: str = "gpt-4o-mini",
-        max_length: Optional[int] = None
+        max_length: int | None = None
     ) -> str:
         """
         Generate a summary of content with specialized handling.

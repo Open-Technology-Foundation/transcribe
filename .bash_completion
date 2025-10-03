@@ -1,0 +1,172 @@
+#!/bin/bash
+
+# Bash completion for transcribe tools
+# Source this file or add to ~/.bashrc
+
+_transcribe_complete() {
+  local cur prev opts
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  
+  # Common options for transcribe and transcribe-parallel
+  local transcribe_opts="-h --help -o --output -O --output-to-stdout -P --no-post-processing -l --chunk-length -L --input-language -c --context -W --transcribe-model -m --model -s --max-chunk-size -t --temperature -p --prompt -w --max-workers --summary-model --auto-context --raw --auto-language --parallel --max-parallel-workers --cache --content-aware --clear-cache -T --timestamps --srt --vtt -v --verbose -d --debug"
+  
+  # Model names
+  local models="gpt-4o gpt-4o-mini whisper-1 gpt-4o-mini-transcribe"
+  
+  # Audio file extensions
+  local audio_exts="mp3 wav m4a flac ogg wma aac webm mp4 mov avi mkv"
+  
+  case "${prev}" in
+    -o|--output)
+      # Complete with .txt files and allow typing new names
+      COMPREPLY=($(compgen -f -X '!*.txt' -- "${cur}"))
+      return 0
+      ;;
+    -m|--model|-W|--transcribe-model|--summary-model)
+      COMPREPLY=($(compgen -W "${models}" -- "${cur}"))
+      return 0
+      ;;
+    -L|--input-language)
+      # Common language codes
+      local langs="en es fr de it pt ru ja zh ar hi"
+      COMPREPLY=($(compgen -W "${langs}" -- "${cur}"))
+      return 0
+      ;;
+    -c|--context)
+      # Common context types
+      local contexts="medical legal technical academic business scientific philosophy neuroscience"
+      COMPREPLY=($(compgen -W "${contexts}" -- "${cur}"))
+      return 0
+      ;;
+    -l|--chunk-length|-s|--max-chunk-size|-t|--temperature|-w|--max-workers|--max-parallel-workers|-m|--min-sentences|-M|--max-sentences|--max-sentence-length)
+      # Numeric values - no completion
+      return 0
+      ;;
+    -p|--prompt)
+      # No completion for prompts
+      return 0
+      ;;
+    *)
+      if [[ ${cur} == -* ]]; then
+        COMPREPLY=($(compgen -W "${transcribe_opts}" -- "${cur}"))
+      else
+        # Complete audio files
+        COMPREPLY=($(compgen -f -- "${cur}"))
+        # Filter to audio extensions if we have a partial match
+        if [[ -n "${cur}" ]]; then
+          local filtered=()
+          for file in "${COMPREPLY[@]}"; do
+            if [[ -f "${file}" ]]; then
+              local ext="${file##*.}"
+              if [[ " ${audio_exts} " =~ " ${ext,,} " ]]; then
+                filtered+=("${file}")
+              fi
+            elif [[ -d "${file}" ]]; then
+              filtered+=("${file}")
+            fi
+          done
+          if [[ ${#filtered[@]} -gt 0 ]]; then
+            COMPREPLY=("${filtered[@]}")
+          fi
+        fi
+      fi
+      ;;
+  esac
+}
+
+_clean_transcript_complete() {
+  local cur prev opts
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  
+  local opts="-h --help -L --input-language -c --context -m --model -M --max-tokens -s --max-chunk-size -t --temperature -o --output -v --verbose -d --debug"
+  local models="gpt-4o gpt-4o-mini"
+  
+  case "${prev}" in
+    -o|--output)
+      COMPREPLY=($(compgen -f -X '!*.txt' -- "${cur}"))
+      return 0
+      ;;
+    -m|--model)
+      COMPREPLY=($(compgen -W "${models}" -- "${cur}"))
+      return 0
+      ;;
+    -L|--input-language)
+      local langs="en es fr de it pt ru ja zh ar hi"
+      COMPREPLY=($(compgen -W "${langs}" -- "${cur}"))
+      return 0
+      ;;
+    -c|--context)
+      local contexts="medical legal technical academic business scientific philosophy neuroscience"
+      COMPREPLY=($(compgen -W "${contexts}" -- "${cur}"))
+      return 0
+      ;;
+    -M|--max-tokens|-s|--max-chunk-size|-t|--temperature)
+      return 0
+      ;;
+    *)
+      if [[ ${cur} == -* ]]; then
+        COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
+      else
+        # Complete text files for input
+        COMPREPLY=($(compgen -f -X '!*.txt' -- "${cur}"))
+      fi
+      ;;
+  esac
+}
+
+_language_codes_complete() {
+  local cur prev opts
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  
+  local opts="-h --help -v --verbose -d --debug"
+  
+  if [[ ${cur} == -* ]]; then
+    COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
+  else
+    # Complete common language names/codes
+    local langs="english spanish french german italian portuguese russian japanese chinese arabic hindi"
+    COMPREPLY=($(compgen -W "${langs}" -- "${cur}"))
+  fi
+}
+
+_create_sentences_complete() {
+  local cur prev opts
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  
+  local opts="-h --help -o --output -p --paragraphs -m --min-sentences -M --max-sentences -s --max-sentence-length -v --verbose -d --debug"
+  
+  case "${prev}" in
+    -o|--output)
+      COMPREPLY=($(compgen -f -X '!*.txt' -- "${cur}"))
+      return 0
+      ;;
+    -m|--min-sentences|-M|--max-sentences|-s|--max-sentence-length)
+      return 0
+      ;;
+    *)
+      if [[ ${cur} == -* ]]; then
+        COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
+      else
+        # Complete text files for input
+        COMPREPLY=($(compgen -f -X '!*.txt' -- "${cur}"))
+      fi
+      ;;
+  esac
+}
+
+# Register completion functions
+complete -F _transcribe_complete transcribe
+complete -F _transcribe_complete transcribe-parallel
+complete -F _clean_transcript_complete clean-transcript
+complete -F _language_codes_complete language-codes
+complete -F _create_sentences_complete create-sentences
+
+#fin

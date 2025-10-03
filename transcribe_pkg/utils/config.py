@@ -27,7 +27,7 @@ import json
 import logging
 import argparse
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Any
 
 # Default configuration values
 DEFAULT_CONFIG = {
@@ -75,7 +75,7 @@ DEFAULT_CONFIG = {
 class Config:
   """Configuration manager for transcribe package."""
   
-  def __init__(self, config_file: Optional[str] = None):
+  def __init__(self, config_file: str | None = None):
     """
     Initialize configuration with optional config file.
     
@@ -167,7 +167,7 @@ class Config:
     if log_level:
       self._config['system']['log_level'] = log_level
   
-  def save_to_file(self, config_file: Optional[str] = None) -> None:
+  def save_to_file(self, config_file: str | None = None) -> None:
     """
     Save configuration to file.
     
@@ -276,7 +276,7 @@ class Config:
     # Set the value
     config[keys[-1]] = value
   
-  def update(self, updates: Dict[str, Any]) -> None:
+  def update(self, updates: dict[str, Any]) -> None:
     """
     Update configuration with dictionary of values.
     
@@ -285,7 +285,7 @@ class Config:
     """
     self._update_nested_dict(self._config, updates)
   
-  def _update_nested_dict(self, d: Dict[str, Any], u: Dict[str, Any]) -> None:
+  def _update_nested_dict(self, d: dict[str, Any], u: dict[str, Any]) -> None:
     """
     Update nested dictionary recursively.
     
@@ -314,7 +314,7 @@ class Config:
         d[k] = v
   
   @property
-  def as_dict(self) -> Dict[str, Any]:
+  def as_dict(self) -> dict[str, Any]:
     """Get full configuration as dictionary."""
     # Make a deep copy to prevent modification of the internal config
     import copy
@@ -376,7 +376,7 @@ def get_config() -> Config:
   """Get global configuration instance."""
   return config
 
-def init_config(config_file: Optional[str] = None) -> Config:
+def init_config(config_file: str | None = None) -> Config:
   """
   Initialize global configuration.
   

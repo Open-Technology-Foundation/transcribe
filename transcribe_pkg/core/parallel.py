@@ -7,7 +7,8 @@ dividing work across multiple processors and threads for improved performance.
 """
 import os
 import logging
-from typing import List, Dict, Any, Optional, Callable, Tuple, Union
+from typing import Any
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 import time
 import json
@@ -27,11 +28,11 @@ class ParallelProcessor:
     
     def __init__(
         self,
-        max_workers: int = None,
+        max_workers: int | None = None,
         use_processes: bool = False,
         chunk_size: int = 4000,
         overlap: int = 500,
-        logger: Optional[logging.Logger] = None
+        logger: logging.Logger | None = None
     ):
         """
         Initialize the parallel processor.
@@ -60,8 +61,8 @@ class ParallelProcessor:
     def process_text(
         self,
         text: str,
-        process_func: Callable[[str, Dict[str, Any]], str],
-        combine_func: Optional[Callable[[List[str]], str]] = None,
+        process_func: Callable[[str, dict[str, Any]], str],
+        combine_func: Callable[[list[str]], str] | None = None,
         show_progress: bool = True,
         **kwargs: Any
     ) -> str:
@@ -145,9 +146,9 @@ class ParallelProcessor:
     
     def process_audio_chunks(
         self,
-        chunk_paths: List[str],
-        process_func: Callable[[str, Dict[str, Any]], Any],
-        combine_func: Optional[Callable[[List[Any]], Any]] = None,
+        chunk_paths: list[str],
+        process_func: Callable[[str, dict[str, Any]], Any],
+        combine_func: Callable[[list[Any]], Any] | None = None,
         show_progress: bool = True,
         **kwargs: Any
     ) -> Any:
@@ -236,7 +237,7 @@ class ChunkProcessor:
     
     def __init__(
         self,
-        logger: Optional[logging.Logger] = None
+        logger: logging.Logger | None = None
     ):
         """
         Initialize the chunk processor.
@@ -246,7 +247,7 @@ class ChunkProcessor:
         """
         self.logger = logger or get_logger(__name__)
     
-    def combine_chunks(self, chunks: List[str]) -> str:
+    def combine_chunks(self, chunks: list[str]) -> str:
         """
         Combine processed chunks into a cohesive text.
         
@@ -292,9 +293,9 @@ class ChunkProcessor:
             return "narrative"
     
     def adjust_chunk_boundaries(
-        self, 
-        chunks: List[str]
-    ) -> List[str]:
+        self,
+        chunks: list[str]
+    ) -> list[str]:
         """
         Adjust chunk boundaries to improve coherence.
         

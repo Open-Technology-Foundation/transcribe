@@ -1,23 +1,15 @@
 #!/bin/bash
+#shellcheck disable=SC2155,SC1091
 set -euo pipefail
 
-# Get the directory of the script
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+SCRIPT_PATH=$(readlink -en -- "$0")
+SCRIPT_DIR=$(dirname -- "$SCRIPT_PATH")
+readonly -- SCRIPT_PATH SCRIPT_DIR
 
-# Add the parent directory to PYTHONPATH to ensure module can be found
-export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
-    
-# Activate virtual environment if it exists
-if [[ -f "${SCRIPT_DIR}/.venv/bin/activate" ]]; then
-  source "${SCRIPT_DIR}/.venv/bin/activate"
-fi
-
+source "$SCRIPT_DIR"/.venv/bin/activate
 # Source environment variables if .env exists
-if [[ -f "${SCRIPT_DIR}/.env" ]]; then
-  source "${SCRIPT_DIR}/.env"
-fi
+[[ -f "$SCRIPT_DIR"/.env ]] && source "$SCRIPT_DIR"/.env
 
-# Run the create sentences command
-create-sentences "$@"
+exec python -c "import sys; sys.argv = ['create-sentences'] + sys.argv[2:]; from transcribe_pkg.main import create_sentences_main; sys.exit(create_sentences_main())" -- "$@"
 
 #fin

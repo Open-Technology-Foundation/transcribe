@@ -27,7 +27,7 @@ setup(
       "language-codes=transcribe_pkg.main:language_codes_main",
     ],
   },
-  python_requires=">=3.8",
+  python_requires=">=3.12",
   author="AI Transcription Team",
   author_email="your.email@example.com",
   description="A package for transcribing audio files using OpenAI's Whisper API",

@@ -30,33 +30,45 @@ class TestIntegration(unittest.TestCase):
         """Clean up after tests."""
         self.temp_dir.cleanup()
     
-    @patch('transcribe_pkg.core.transcriber.split_audio')
-    @patch('transcribe_pkg.core.transcriber.transcribe_chunks_parallel')
-    @patch('transcribe_pkg.core.transcriber.process_transcript')
-    def test_transcribe_audio_file_end_to_end(self, mock_process, mock_transcribe, mock_split):
+    @patch('transcribe_pkg.core.transcriber.Transcriber')
+    @patch('transcribe_pkg.core.processor.TranscriptProcessor')
+    @patch('os.path.exists')
+    def test_transcribe_audio_file_end_to_end(self, mock_exists, mock_processor_class, mock_transcriber_class):
         """Test end-to-end audio file transcription process."""
         # Setup mocks
-        mock_split.return_value = ['chunk1.mp3', 'chunk2.mp3']
-        mock_transcribe.return_value = [self.sample_transcript]
-        mock_process.return_value = "Processed transcript"
-        
+        mock_exists.return_value = True
+
+        # Mock transcriber instance and methods
+        mock_transcriber = MagicMock()
+        mock_transcriber.transcribe.return_value = self.sample_transcript
+        mock_transcriber_class.return_value = mock_transcriber
+
+        # Mock processor instance and methods
+        mock_processor = MagicMock()
+        mock_processor.process.return_value = "Processed transcript"
+        mock_processor_class.return_value = mock_processor
+
         # Call function
         result = transcribe_audio_file(
             audio_path="test.mp3",
             output_file=self.output_path,
-            parallel_processing=True,
-            max_workers=2
+            context="test",
+            model="test-model",
+            parallel_processing=False,
+            max_workers=1
         )
-        
+
         # Check results
         self.assertEqual(result, "Processed transcript")
-        
-        # Verify mocks called correctly
-        mock_split.assert_called_once()
-        mock_transcribe.assert_called_once()
-        mock_context.assert_called_once()
-        mock_process.assert_called_once()
-        
+
+        # Verify transcriber was created and called
+        mock_transcriber_class.assert_called_once()
+        mock_transcriber.transcribe.assert_called_once()
+
+        # Verify processor was created and called
+        mock_processor_class.assert_called_once()
+        mock_processor.process.assert_called_once()
+
         # Check output file
         self.assertTrue(os.path.exists(self.output_path))
         with open(self.output_path, 'r') as f:

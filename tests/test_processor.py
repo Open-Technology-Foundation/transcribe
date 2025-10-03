@@ -44,53 +44,52 @@ class TestTranscriptProcessor(unittest.TestCase):
         self.assertEqual(chunk, text)
         self.assertEqual(remaining, "")
     
-    @patch('transcribe_pkg.core.processor.OpenAIClient')
-    def test_process_chunk(self, mock_client):
+    @patch('transcribe_pkg.core.processor.call_llm')
+    def test_process_chunk(self, mock_call_llm):
         """Test processing a chunk of text."""
         # Setup mock
-        mock_client_instance = mock_client.return_value
-        mock_client_instance.chat_completion.return_value = "Processed text"
-        
-        # Create processor with mock client
-        processor = TranscriptProcessor(api_client=mock_client_instance)
-        
+        mock_call_llm.return_value = "Processed text"
+
+        # Create processor
+        processor = TranscriptProcessor()
+
         # Test processing
         result = processor._process_chunk(
-            "This is a test chunk.", 
-            "science", 
-            "Previous context summary", 
+            "This is a test chunk.",
+            "science",
+            "Previous context summary",
             "en"
         )
-        
+
         # Verify result
         self.assertEqual(result, "Processed text")
-        mock_client_instance.chat_completion.assert_called_once()
-        
-        # Check that context and language were properly handled
-        call_args = mock_client_instance.chat_completion.call_args[1]
-        self.assertEqual(call_args["model"], "gpt-4o")
-        self.assertEqual(call_args["temperature"], 0.05)
-        self.assertEqual(call_args["user_prompt"], "This is a test chunk.")
-        
+        mock_call_llm.assert_called_once()
+
+        # Check that call_llm was called with correct arguments
+        call_args = mock_call_llm.call_args
+        self.assertEqual(call_args[1]["user_prompt"], "This is a test chunk.")
+        self.assertEqual(call_args[1]["model"], "gpt-4o")
+        self.assertEqual(call_args[1]["temperature"], 0.05)
+
         # System prompt should contain context and language info
-        system_prompt = call_args["system_prompt"]
+        system_prompt = call_args[1]["system_prompt"]
         self.assertIn("with extensive knowledge in science", system_prompt)
         self.assertIn("Context Summary", system_prompt)
         self.assertIn("Previous context summary", system_prompt)
     
-    @patch('transcribe_pkg.core.processor.OpenAIClient')
-    def test_process_chunk_with_error(self, mock_client):
+    @patch('transcribe_pkg.core.processor.call_llm')
+    def test_process_chunk_with_error(self, mock_call_llm):
         """Test handling API errors in chunk processing."""
         # Setup mock to raise exception
-        mock_client_instance = mock_client.return_value
-        mock_client_instance.chat_completion.side_effect = Exception("API error")
-        
-        # Create processor with mock client
-        processor = TranscriptProcessor(api_client=mock_client_instance)
-        
+        from transcribe_pkg.utils.api_utils import APIError
+        mock_call_llm.side_effect = APIError("API error")
+
+        # Create processor
+        processor = TranscriptProcessor()
+
         # Test processing with error
         result = processor._process_chunk("This is a test chunk.", "", None, "en")
-        
+
         # On error, should return original chunk
         self.assertEqual(result, "This is a test chunk.")
 

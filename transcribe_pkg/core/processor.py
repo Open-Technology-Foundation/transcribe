@@ -15,7 +15,7 @@ and creates logical paragraphs while preserving the original meaning.
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 import sys
 
 from transcribe_pkg.utils.api_utils import OpenAIClient, APIError, call_llm
@@ -40,17 +40,17 @@ class TranscriptProcessor:
     
     def __init__(
         self,
-        api_client: Optional[OpenAIClient] = None,
+        api_client: OpenAIClient | None = None,
         model: str = "gpt-4o",
         summary_model: str = "gpt-4o-mini",
         temperature: float = 0.05,
         max_tokens: int = 4096,
         max_chunk_size: int = 3000,
-        max_workers: int = None,
+        max_workers: int | None = None,
         cache_enabled: bool = True,
         content_aware: bool = True,
-        logger: Optional[logging.Logger] = None,
-        prompt_manager: Optional[PromptManager] = None
+        logger: logging.Logger | None = None,
+        prompt_manager: PromptManager | None = None
     ):
         """
         Initialize transcript processor with configuration.
@@ -112,7 +112,7 @@ class TranscriptProcessor:
         self,
         text: str,
         context: str = "",
-        language: Optional[str] = None,
+        language: str | None = None,
         use_parallel: bool = True,
         content_analysis: bool = True
     ) -> str:
@@ -263,7 +263,7 @@ class TranscriptProcessor:
         
         # Define the chunk processing function
         # This function is passed to the parallel processor
-        def process_chunk(chunk: str, kwargs: Dict[str, Any]) -> str:
+        def process_chunk(chunk: str, kwargs: dict[str, Any]) -> str:
             # Extract any additional kwargs
             chunk_context = kwargs.get("context", context)
             chunk_index = kwargs.get("chunk_index", 0)
@@ -445,10 +445,10 @@ class TranscriptProcessor:
         return ', '.join(words[:-1]) + ', and ' + words[-1]
     
     def _process_chunk(
-        self, 
-        chunk: str, 
-        context: str, 
-        context_summary: Optional[str],
+        self,
+        chunk: str,
+        context: str,
+        context_summary: str | None,
         language: str
     ) -> str:
         """
@@ -494,7 +494,7 @@ class TranscriptProcessor:
     
     # Method is replaced by prompt_manager.generate_summary
     
-    def _get_chunk_with_complete_sentences(self, text: str, max_chunk_size: int) -> Tuple[str, str]:
+    def _get_chunk_with_complete_sentences(self, text: str, max_chunk_size: int) -> tuple[str, str]:
         """
         Extract a chunk of text with complete sentences up to max_chunk_size.
         

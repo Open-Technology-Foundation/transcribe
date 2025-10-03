@@ -9,13 +9,14 @@ Whisper API, and handling timestamped output.
 import os
 import logging
 import tempfile
-from typing import Dict, List, Optional, Union, Any
+from typing import Any, overload, Literal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from transcribe_pkg.utils.logging_utils import get_logger
 from transcribe_pkg.utils.audio_utils import AudioProcessor
 from transcribe_pkg.utils.api_utils import OpenAIClient, APIError
+from transcribe_pkg.types import TranscriptionResult
 
 class Transcriber:
     """
@@ -27,13 +28,13 @@ class Transcriber:
     
     def __init__(
         self,
-        api_client: Optional[OpenAIClient] = None,
-        audio_processor: Optional[AudioProcessor] = None,
+        api_client: OpenAIClient | None = None,
+        audio_processor: AudioProcessor | None = None,
         model: str = "whisper-1",
-        language: Optional[str] = None,
+        language: str | None = None,
         temperature: float = 0.05,
         chunk_length_ms: int = 600000,
-        logger: Optional[logging.Logger] = None
+        logger: logging.Logger | None = None
     ):
         """
         Initialize transcriber with configuration.
@@ -54,14 +55,32 @@ class Transcriber:
         self.language = language
         self.temperature = temperature
         self.chunk_length_ms = chunk_length_ms
-    
+
+    @overload
+    def transcribe(
+        self,
+        audio_path: str,
+        prompt: str = "",
+        with_timestamps: Literal[False] = False,
+        max_workers: int = 1
+    ) -> str: ...
+
+    @overload
+    def transcribe(
+        self,
+        audio_path: str,
+        prompt: str = "",
+        with_timestamps: Literal[True] = ...,
+        max_workers: int = 1
+    ) -> TranscriptionResult: ...
+
     def transcribe(
         self,
         audio_path: str,
         prompt: str = "",
         with_timestamps: bool = False,
         max_workers: int = 1
-    ) -> Union[str, Dict[str, Any]]:
+    ) -> str | TranscriptionResult:
         """
         Transcribe an audio file.
         
@@ -97,7 +116,7 @@ class Transcriber:
             except ValueError as e:
                 self.logger.error(f"Error processing audio file: {str(e)}")
                 # Reraise with more descriptive message
-                raise ValueError(f"Failed to process audio file. Please check if the file is valid and not empty. Error: {str(e)}")
+                raise ValueError(f"Failed to process audio file. Please check if the file is valid and not empty. Error: {str(e)}") from e
             except Exception as e:
                 self.logger.error(f"Unexpected error splitting audio: {str(e)}")
                 raise
@@ -130,10 +149,10 @@ class Transcriber:
     
     def _transcribe_chunks_sequential(
         self,
-        chunk_paths: List[str],
+        chunk_paths: list[str],
         prompt: str = "",
         with_timestamps: bool = False
-    ) -> Union[List[str], Dict[str, Any]]:
+    ) -> list[str] | TranscriptionResult:
         """
         Transcribe audio chunks sequentially.
         
@@ -284,11 +303,11 @@ class Transcriber:
     
     def _transcribe_chunks_parallel(
         self,
-        chunk_paths: List[str],
+        chunk_paths: list[str],
         prompt: str = "",
         with_timestamps: bool = False,
         max_workers: int = 4
-    ) -> Union[List[str], Dict[str, Any]]:
+    ) -> list[str] | TranscriptionResult:
         """
         Transcribe audio chunks in parallel using multiple workers.
         
@@ -445,10 +464,10 @@ class Transcriber:
 
 def transcribe_audio_file(
     audio_path: str,
-    output_file: Optional[str] = None,
+    output_file: str | None = None,
     context: str = "",
     model: str = "gpt-4o",
-    language: Optional[str] = None,
+    language: str | None = None,
     parallel_processing: bool = False,
     max_workers: int = 1,
     chunk_size: int = 3000,

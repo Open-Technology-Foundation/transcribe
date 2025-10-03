@@ -11,11 +11,13 @@ Both formats include timestamp information for synchronizing text with audio/vid
 
 import os
 import logging
+import functools
 from datetime import timedelta
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 from transcribe_pkg.utils.logging_utils import get_logger
 
+@functools.lru_cache(maxsize=1024)
 def format_timestamp_srt(seconds: float) -> str:
     """
     Format seconds as SRT timestamp (HH:MM:SS,mmm).
@@ -32,6 +34,7 @@ def format_timestamp_srt(seconds: float) -> str:
     return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02},{milliseconds:03}"
 
 
+@functools.lru_cache(maxsize=1024)
 def format_timestamp_vtt(seconds: float) -> str:
     """
     Format seconds as VTT timestamp (HH:MM:SS.mmm).
@@ -48,7 +51,7 @@ def format_timestamp_vtt(seconds: float) -> str:
     return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}.{milliseconds:03}"
 
 
-def generate_srt(segments: List[Dict[str, Any]], max_line_length: int = 42, max_duration: float = 5.0) -> str:
+def generate_srt(segments: list[dict[str, Any]], max_line_length: int = 42, max_duration: float = 5.0) -> str:
     """
     Generate SRT subtitle format from transcript segments.
     
@@ -134,7 +137,7 @@ def generate_srt(segments: List[Dict[str, Any]], max_line_length: int = 42, max_
     return "\n".join(srt_content)
 
 
-def generate_vtt(segments: List[Dict[str, Any]], max_line_length: int = 42, max_duration: float = 5.0) -> str:
+def generate_vtt(segments: list[dict[str, Any]], max_line_length: int = 42, max_duration: float = 5.0) -> str:
     """
     Generate WebVTT subtitle format from transcript segments.
     
@@ -215,7 +218,7 @@ def generate_vtt(segments: List[Dict[str, Any]], max_line_length: int = 42, max_
     return "\n".join(vtt_content)
 
 
-def save_subtitles(transcript_result: Dict[str, Any], output_path: str, format_type: str = "srt") -> Optional[str]:
+def save_subtitles(transcript_result: dict[str, Any], output_path: str, format_type: str = "srt") -> str | None:
     """
     Save transcript with timestamps to subtitle file.
     

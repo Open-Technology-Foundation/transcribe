@@ -2,14 +2,14 @@
 #shellcheck disable=SC2155,SC1091
 set -euo pipefail
 
-declare PRG0=$(readlink -en -- "$0")
-declare PRGDIR=$(dirname -- "$PRG0")
-declare PRG=$(basename -- "$PRG0")
-    
-source "$PRGDIR"/.venv/bin/activate
+SCRIPT_PATH=$(readlink -en -- "$0")
+SCRIPT_DIR=$(dirname -- "$SCRIPT_PATH")
+#SCRIPT_NAME=$(basename -- "$SCRIPT_PATH")
+readonly -- SCRIPT_PATH SCRIPT_DIR
+source "$SCRIPT_DIR"/.venv/bin/activate
 # Source environment variables if .env exists
-[[ -f "$PRGDIR"/.env ]] && source "$PRGDIR"/.env
+[[ -f "$SCRIPT_DIR"/.env ]] && source "$SCRIPT_DIR"/.env
 
-transcribe "$@"
+exec python -m transcribe_pkg "$@"
 
 #fin

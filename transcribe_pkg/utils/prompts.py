@@ -12,7 +12,7 @@ throughout the transcription toolkit. It includes:
 - Template management for customizing prompts
 """
 import logging
-from typing import Dict, Optional, Any, List
+from typing import Any
 import re
 
 from transcribe_pkg.utils.api_utils import OpenAIClient, APIError, call_llm
@@ -28,7 +28,7 @@ class PromptManager:
     - Context-specific prompt generation
     """
     
-    def __init__(self, api_client: Optional[OpenAIClient] = None, logger: Optional[logging.Logger] = None):
+    def __init__(self, api_client: OpenAIClient | None = None, logger: logging.Logger | None = None):
         """
         Initialize the prompt manager.
         
@@ -185,27 +185,26 @@ Examples:
 """,
 
             # Context extraction
-            'context_extraction': """
-You are a knowledgeable academic classifier specializing in categorizing content across academic disciplines, scientific fields, and cultural domains. Analyze the provided text and identify the most relevant fields it belongs to.
+            'context_extraction': """Identify the 3-5 most relevant academic or professional fields for this text.
 
-Provide exactly 3-5 primary fields, ordered by relevance, as a simple comma-separated list.
+Output ONLY a comma-separated list of fields, ordered by relevance. Use lowercase, no articles.
 
-Format: field1,field2,field3[,field4][,field5]
-
-Example outputs:
+Examples:
+- neuroscience,psychology,biology
 - economics,sociology,political science
-- physics,astronomy,mathematics,engineering
-- literature,cultural studies,history,sociology
-""",
+- physics,astronomy,mathematics
+- literature,cultural studies,history
+
+Respond with ONLY the comma-separated list. No explanation, no preamble, no punctuation except commas.""",
 
             # Language detection
-            'language_detection': """
-You are an expert in determining what language a text is written in.
+            'language_detection': """Determine the language of the text.
 
-You return one two-character language code that corresponds to the language of the text; eg: en, id, ko, zh, ja.
+Respond with ONLY a two-character ISO 639-1 language code in lowercase.
 
-Make no other commentary or preamble. Just output the language code.
-"""
+Examples: en, es, fr, de, zh, ja, ko, ar, ru
+
+Output ONLY the two-letter code. No explanation, no preamble, no punctuation."""
         }
     
     def get_template(self, template_name: str) -> str:
@@ -236,11 +235,11 @@ Make no other commentary or preamble. Just output the language code.
         self._templates[template_name] = template
     
     def get_system_prompt(
-        self, 
-        template_name: str, 
-        context: str = "", 
+        self,
+        template_name: str,
+        context: str = "",
         language: str = "en",
-        context_summary: Optional[str] = None
+        context_summary: str | None = None
     ) -> str:
         """
         Get a formatted system prompt for a specific task.
@@ -292,14 +291,24 @@ Make no other commentary or preamble. Just output the language code.
         """
         system_prompt = self.get_template('context_extraction')
         try:
+            # Use minimal reasoning effort for GPT-5 models for faster classification
+            from transcribe_pkg.utils.api_utils import _is_reasoning_model
+            reasoning_effort = "minimal" if _is_reasoning_model(model) else None
+
             response = call_llm(
                 user_prompt=text,
                 system_prompt=system_prompt,
                 model=model,
                 temperature=0.0,
-                max_tokens=100
+                max_tokens=200,
+                reasoning_effort=reasoning_effort
             )
-            return response.strip()
+            result = response.strip()
+            if not result:
+                self.logger.debug("Empty response from context extraction")
+            else:
+                self.logger.debug(f"Context extraction result: {result}")
+            return result
         except Exception as e:
             self.logger.error(f"Error extracting context: {str(e)}")
             return ""
@@ -317,12 +326,17 @@ Make no other commentary or preamble. Just output the language code.
         """
         system_prompt = self.get_template('language_detection')
         try:
+            # Use minimal reasoning effort for GPT-5 models for faster classification
+            from transcribe_pkg.utils.api_utils import _is_reasoning_model
+            reasoning_effort = "minimal" if _is_reasoning_model(model) else None
+
             response = call_llm(
                 user_prompt=text,
                 system_prompt=system_prompt,
                 model=model,
                 temperature=0.0,
-                max_tokens=50
+                max_tokens=50,
+                reasoning_effort=reasoning_effort
             )
             return response.strip()
         except Exception as e:

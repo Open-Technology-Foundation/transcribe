@@ -2,14 +2,14 @@
 #shellcheck disable=SC2155,SC1091
 set -euo pipefail
 
-declare PRG0=$(readlink -en -- "$0")
-declare PRGDIR=$(dirname -- "$PRG0")
-declare PRG=$(basename -- "$PRG0")
-    
-source "$PRGDIR"/.venv/bin/activate
-# Source environment variables if .env exists
-[[ -f "$PRGDIR"/.env ]] && source "$PRGDIR"/.env
+SCRIPT_PATH=$(readlink -en -- "$0")
+SCRIPT_DIR=$(dirname -- "$SCRIPT_PATH")
+readonly -- SCRIPT_PATH SCRIPT_DIR
 
-clean-transcript "$@"
+source "$SCRIPT_DIR"/.venv/bin/activate
+# Source environment variables if .env exists
+[[ -f "$SCRIPT_DIR"/.env ]] && source "$SCRIPT_DIR"/.env
+
+exec python -c "import sys; sys.argv = ['clean-transcript'] + sys.argv[2:]; from transcribe_pkg.main import clean_transcript_main; sys.exit(clean_transcript_main())" -- "$@"
 
 #fin

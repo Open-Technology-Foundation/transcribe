@@ -9,13 +9,336 @@ import os
 import sys
 import argparse
 import logging
-from typing import List, Optional, Any, Dict
+from typing import Any
+from collections.abc import Sequence
 
 from transcribe_pkg.utils.logging_utils import setup_logging
 from transcribe_pkg.utils.config import Config
 from transcribe_pkg.core.transcriber import Transcriber
 
-def transcribe_command(args: Optional[List[str]] = None) -> int:
+# Helper functions for transcribe_command
+
+def _validate_numeric_args(parsed_args: argparse.Namespace, logger: logging.Logger) -> bool:
+  """
+  Validate numeric command-line arguments.
+
+  Args:
+    parsed_args: Parsed command-line arguments
+    logger: Logger instance
+
+  Returns:
+    True if all arguments are valid, False otherwise
+  """
+  # Validate temperature (0.0 to 1.0)
+  if not 0.0 <= parsed_args.temperature <= 1.0:
+    logger.error(f"Invalid --temperature value: {parsed_args.temperature}. Must be between 0.0 and 1.0.")
+    return False
+
+  # Validate max_workers (must be >= 1)
+  if parsed_args.max_workers < 1:
+    logger.error(f"Invalid --max-workers value: {parsed_args.max_workers}. Must be >= 1.")
+    return False
+
+  # Validate max_parallel_workers (must be >= 1 or None)
+  if parsed_args.max_parallel_workers is not None and parsed_args.max_parallel_workers < 1:
+    logger.error(f"Invalid --max-parallel-workers value: {parsed_args.max_parallel_workers}. Must be >= 1.")
+    return False
+
+  # Validate chunk_length (must be > 0)
+  if parsed_args.chunk_length <= 0:
+    logger.error(f"Invalid --chunk-length value: {parsed_args.chunk_length}. Must be > 0.")
+    return False
+
+  # Validate max_chunk_size (must be > 0)
+  if parsed_args.max_chunk_size <= 0:
+    logger.error(f"Invalid --max-chunk-size value: {parsed_args.max_chunk_size}. Must be > 0.")
+    return False
+
+  return True
+
+def _determine_output_path(parsed_args: argparse.Namespace, audio_path: str) -> tuple[str | None, bool]:
+  """
+  Determine output path and whether to use stdout.
+
+  Args:
+    parsed_args: Parsed command-line arguments
+    audio_path: Path to input audio file
+
+  Returns:
+    Tuple of (output_path, use_stdout)
+  """
+  if parsed_args.output_to_stdout:
+    return None, True
+  elif not parsed_args.output:
+    return os.path.splitext(audio_path)[0] + ".txt", False
+  else:
+    return parsed_args.output, False
+
+def _determine_subtitle_format(parsed_args: argparse.Namespace, logger: logging.Logger) -> str | None:
+  """
+  Determine subtitle format from arguments.
+
+  Args:
+    parsed_args: Parsed command-line arguments
+    logger: Logger instance
+
+  Returns:
+    Subtitle format ('srt', 'vtt') or None
+  """
+  if parsed_args.srt and parsed_args.vtt:
+    logger.warning("Both SRT and VTT formats specified; defaulting to SRT")
+    return "srt"
+  elif parsed_args.srt:
+    return "srt"
+  elif parsed_args.vtt:
+    return "vtt"
+  return None
+
+def _setup_transcriber(parsed_args: argparse.Namespace, logger: logging.Logger) -> Transcriber:
+  """
+  Create and configure a Transcriber instance.
+
+  Args:
+    parsed_args: Parsed command-line arguments
+    logger: Logger instance
+
+  Returns:
+    Configured Transcriber instance
+  """
+  return Transcriber(
+    model=parsed_args.transcribe_model,
+    language=parsed_args.input_language,
+    temperature=0.05,  # Fixed temperature for transcription
+    chunk_length_ms=parsed_args.chunk_length,
+    logger=logger
+  )
+
+def _convert_result_to_subtitle_dict(result: Any, logger: logging.Logger) -> dict[str, Any] | None:
+  """
+  Convert transcription result to dictionary format for subtitle generation.
+
+  Args:
+    result: Transcription result (dict or object)
+    logger: Logger instance
+
+  Returns:
+    Dictionary with 'text' and 'segments' keys, or None on error
+  """
+  if isinstance(result, dict) and "segments" in result:
+    return result
+
+  if hasattr(result, "text") and hasattr(result, "segments"):
+    # Convert from object to dict
+    result_dict = {
+      "text": result.text,
+      "segments": []
+    }
+    for segment in result.segments:
+      segment_dict = {
+        "id": getattr(segment, "id", 0),
+        "start": getattr(segment, "start", 0),
+        "end": getattr(segment, "end", 0),
+        "text": getattr(segment, "text", ""),
+        "words": []
+      }
+      if hasattr(segment, "words"):
+        for word in segment.words:
+          segment_dict["words"].append({
+            "word": getattr(word, "word", ""),
+            "start": getattr(word, "start", 0),
+            "end": getattr(word, "end", 0)
+          })
+      result_dict["segments"].append(segment_dict)
+    return result_dict
+
+  logger.error("Transcription result is not in expected format for subtitle generation")
+  return None
+
+def _extract_text_from_result(result: Any) -> str:
+  """
+  Extract text content from transcription result.
+
+  Args:
+    result: Transcription result (str, dict, or object)
+
+  Returns:
+    Extracted text content
+  """
+  if isinstance(result, str):
+    return result
+  elif isinstance(result, dict) and "text" in result:
+    return result.get("text", "")
+  elif hasattr(result, "text"):
+    return result.text
+  else:
+    return str(result)
+
+def _save_raw_transcript(result: Any, output_path: str | None, parsed_args: argparse.Namespace, with_timestamps: bool, logger: logging.Logger) -> None:
+  """
+  Save raw transcript if requested.
+
+  Args:
+    result: Transcription result
+    output_path: Output file path (None if stdout)
+    parsed_args: Parsed command-line arguments
+    with_timestamps: Whether timestamps are enabled
+    logger: Logger instance
+  """
+  if not parsed_args.raw or output_path is None or with_timestamps:
+    return
+
+  raw_text = _extract_text_from_result(result)
+  raw_output = f"{output_path}.raw"
+  logger.info(f"Saving raw transcript to {raw_output}")
+  try:
+    with open(raw_output, "w") as f:
+      f.write(raw_text)
+  except Exception as e:
+    logger.error(f"Error saving raw transcript: {str(e)}")
+
+def _post_process_transcript(result: Any, parsed_args: argparse.Namespace, logger: logging.Logger) -> Any:
+  """
+  Post-process the transcript if enabled.
+
+  Args:
+    result: Transcription result
+    parsed_args: Parsed command-line arguments
+    logger: Logger instance
+
+  Returns:
+    Post-processed result (same format as input)
+  """
+  # Import required components
+  from transcribe_pkg.utils.prompts import PromptManager
+  from transcribe_pkg.core.processor import TranscriptProcessor
+
+  # Get the transcript text
+  text_to_process = _extract_text_from_result(result)
+
+  # Create prompt manager for context extraction
+  prompt_manager = PromptManager()
+
+  # Handle context
+  context = parsed_args.context
+  if parsed_args.auto_context or not context:
+    # Only use first chunk for context detection (1000 chars is sufficient)
+    sample_text = text_to_process[:1000]
+    context = prompt_manager.extract_context(sample_text)
+    logger.info(f"Auto-detected context: {context}")
+
+  # Handle cache clearing if requested
+  cache_manager = None
+  if parsed_args.cache:
+    from transcribe_pkg.utils.cache import CacheManager
+    cache_manager = CacheManager(logger=logger)
+
+    if parsed_args.clear_cache:
+      logger.info("Clearing processor cache")
+      cache_manager.clear()
+
+  # Create processor instance
+  processor = TranscriptProcessor(
+    model=parsed_args.model,
+    summary_model=parsed_args.summary_model,
+    temperature=parsed_args.temperature,
+    max_chunk_size=parsed_args.max_chunk_size,
+    max_workers=parsed_args.max_parallel_workers,
+    cache_enabled=parsed_args.cache,
+    content_aware=parsed_args.content_aware,
+    logger=logger,
+    prompt_manager=prompt_manager
+  )
+
+  # Process the transcript
+  logger.info(f"Post-processing transcript with model: {parsed_args.model}")
+  logger.debug(f"Parallel processing: {parsed_args.parallel}")
+  logger.debug(f"Content-aware processing: {parsed_args.content_aware}")
+  logger.debug(f"Cache enabled: {parsed_args.cache}")
+
+  processed_text = processor.process(
+    text=text_to_process,
+    context=context,
+    language=None if parsed_args.auto_language else parsed_args.input_language,
+    use_parallel=parsed_args.parallel,
+    content_analysis=parsed_args.content_aware
+  )
+
+  # Update the result with processed text
+  if isinstance(result, str):
+    return processed_text
+  elif isinstance(result, dict):
+    result["text"] = processed_text
+    return result
+  elif hasattr(result, "text"):
+    result.text = processed_text
+    return result
+  return processed_text
+
+def _write_output(result: Any, output_path: str | None, use_stdout: bool,
+                  with_timestamps: bool, subtitle_format: str | None, logger: logging.Logger) -> bool:
+  """
+  Write output in the requested format.
+
+  Args:
+    result: Transcription result
+    output_path: Output file path (None if stdout)
+    use_stdout: Whether to output to stdout
+    with_timestamps: Whether timestamps are included
+    subtitle_format: Subtitle format ('srt', 'vtt') or None
+    logger: Logger instance
+
+  Returns:
+    True on success, False on error
+  """
+  if use_stdout:
+    if with_timestamps and not subtitle_format:
+      # For timestamped output to stdout, provide a simplified format
+      if isinstance(result, dict) and "segments" in result:
+        segments = result.get("segments", [])
+      else:
+        segments = []
+        logger.warning("No segments found in transcription result for stdout output")
+
+      for segment in segments:
+        start_time = segment.get("start", 0)
+        end_time = segment.get("end", 0)
+        text = segment.get("text", "").strip()
+        print(f"[{start_time:.2f} -> {end_time:.2f}] {text}")
+    else:
+      # Regular text output
+      print(_extract_text_from_result(result))
+  else:
+    # Write to file
+    if with_timestamps and subtitle_format:
+      # Generate subtitle file
+      from transcribe_pkg.utils import subtitle_utils
+
+      # Ensure result is in the expected format for subtitle generation
+      result_dict = _convert_result_to_subtitle_dict(result, logger)
+      if result_dict is None:
+        return False
+
+      subtitle_path = subtitle_utils.save_subtitles(
+        result_dict,
+        f"{output_path}.{subtitle_format}",
+        format_type=subtitle_format
+      )
+      if subtitle_path:
+        logger.info(f"Subtitle file created: {subtitle_path}")
+      else:
+        logger.error("Failed to create subtitle file")
+        return False
+    else:
+      # Write text transcript
+      logger.info(f"Writing transcript to {output_path}")
+      text_content = _extract_text_from_result(result)
+
+      with open(output_path, "w") as f:
+        f.write(text_content)
+
+  return True
+
+def transcribe_command(args: Sequence[str] | None = None) -> int:
     """
     Implement the 'transcribe' command.
     
@@ -88,7 +411,7 @@ Examples:
     post_processing_group.add_argument('--summary-model', default='gpt-4o-mini',
         help='OpenAI LLModel to use for context summarization (default: gpt-4o-mini)')
     post_processing_group.add_argument('--auto-context', action='store_true',
-        help='Automatically determine the domain context from transcript content (def: disabled)')
+        help='Force auto-detection of domain context (def: enabled when --context not specified)')
     post_processing_group.add_argument('--raw', action='store_true',
         help='Save the raw transcript before post-processing (def: disabled)')
     post_processing_group.add_argument('--auto-language', action='store_true',
@@ -122,52 +445,41 @@ Examples:
     
     # Parse arguments
     parsed_args = parser.parse_args(args)
-    
+
     # Set up logging
     logger = setup_logging(parsed_args.verbose, parsed_args.debug)
-    
+
+    # Validate numeric arguments
+    if not _validate_numeric_args(parsed_args, logger):
+        return 1
+
     # Check if input file exists
     if not os.path.exists(parsed_args.audio_path):
         logger.error(f"Input file '{parsed_args.audio_path}' does not exist.")
         return 1
-    
-    # Set default output filename if not specified
-    if parsed_args.output_to_stdout:
-        output = sys.stdout
-    elif not parsed_args.output:
-        output = os.path.splitext(parsed_args.audio_path)[0] + ".txt"
-    else:
-        output = parsed_args.output
-    
-    # Determine subtitle format
-    subtitle_format = None
-    if parsed_args.srt and parsed_args.vtt:
-        logger.warning("Both SRT and VTT formats specified; defaulting to SRT")
-        subtitle_format = "srt"
-    elif parsed_args.srt:
-        subtitle_format = "srt"
-    elif parsed_args.vtt:
-        subtitle_format = "vtt"
-    
+
+    # Validate conflicting flags
+    if parsed_args.output_to_stdout and (parsed_args.srt or parsed_args.vtt):
+        logger.error("Cannot use --output-to-stdout with --srt or --vtt. Subtitle files require file output.")
+        return 1
+
+    # Determine output path and format
+    output_path, use_stdout = _determine_output_path(parsed_args, parsed_args.audio_path)
+    subtitle_format = _determine_subtitle_format(parsed_args, logger)
+
     # Enable timestamps if subtitle format is requested
     with_timestamps = parsed_args.timestamps or subtitle_format is not None
     if subtitle_format and not parsed_args.timestamps:
         logger.info("Enabling timestamps for subtitle generation")
-    
+
     # Log the configuration
     logger.info(f"Starting transcription process for: {parsed_args.audio_path}")
     if subtitle_format:
         logger.info(f"Generating {subtitle_format.upper()} subtitle file")
-    
+
     try:
         # Create transcriber
-        transcriber = Transcriber(
-            model=parsed_args.transcribe_model,
-            language=parsed_args.input_language,
-            temperature=0.05,  # Fixed temperature for transcription
-            chunk_length_ms=parsed_args.chunk_length,
-            logger=logger
-        )
+        transcriber = _setup_transcriber(parsed_args, logger)
         
         # Determine max workers for transcription
         # If --parallel flag is set, use at least 2 workers even if max_workers is not set
@@ -177,7 +489,7 @@ Examples:
             import multiprocessing
             transcription_workers = multiprocessing.cpu_count()
             logger.info(f"Parallel flag enabled, using {transcription_workers} workers for transcription")
-        
+
         # Perform transcription
         result = transcriber.transcribe(
             audio_path=parsed_args.audio_path,
@@ -187,187 +499,16 @@ Examples:
         )
         
         # Handle raw transcript saving if requested
-        if parsed_args.raw and output != sys.stdout and not with_timestamps:
-            # Extract the text to save
-            if isinstance(result, str):
-                raw_text = result
-            elif isinstance(result, dict) and "text" in result:
-                raw_text = result.get("text", "")
-            elif hasattr(result, "text"):
-                raw_text = result.text
-            else:
-                raw_text = str(result)
-                
-            # Create a raw output path
-            raw_output = f"{output}.raw"
-            logger.info(f"Saving raw transcript to {raw_output}")
-            try:
-                with open(raw_output, "w") as f:
-                    f.write(raw_text)
-            except Exception as e:
-                logger.error(f"Error saving raw transcript: {str(e)}")
-        
+        _save_raw_transcript(result, output_path, parsed_args, with_timestamps, logger)
+
         # Handle post-processing if enabled and not timestamped output
         if not parsed_args.no_post_processing and not with_timestamps:
-            # Import required components
-            from transcribe_pkg.utils.prompts import PromptManager
-            from transcribe_pkg.core.processor import TranscriptProcessor
-            
-            # Get the transcript text
-            if isinstance(result, str):
-                text_to_process = result
-            elif isinstance(result, dict) and "text" in result:
-                text_to_process = result.get("text", "")
-            elif hasattr(result, "text"):
-                text_to_process = result.text
-            else:
-                text_to_process = str(result)
-            
-            # Create prompt manager for context extraction
-            prompt_manager = PromptManager()
-            
-            # Handle context
-            context = parsed_args.context
-            if parsed_args.auto_context or (not context and not parsed_args.context):
-                # Only use first chunk for context detection (1000 chars is sufficient)
-                sample_text = text_to_process[:1000]
-                
-                # Create context string
-                context = prompt_manager.extract_context(sample_text)
-                logger.info(f"Auto-detected context: {context}")
-            
-            # Handle cache clearing if requested
-            cache_manager = None
-            if parsed_args.cache:
-                from transcribe_pkg.utils.cache import CacheManager
-                cache_manager = CacheManager(logger=logger)
-                
-                if parsed_args.clear_cache:
-                    logger.info("Clearing processor cache")
-                    cache_manager.clear()
-            
-            # Create processor instance
-            processor = TranscriptProcessor(
-                model=parsed_args.model,
-                summary_model=parsed_args.summary_model,
-                temperature=parsed_args.temperature,
-                max_chunk_size=parsed_args.max_chunk_size,
-                max_workers=parsed_args.max_parallel_workers,
-                cache_enabled=parsed_args.cache,
-                content_aware=parsed_args.content_aware,
-                logger=logger,
-                prompt_manager=prompt_manager
-            )
-            
-            # Process the transcript
-            logger.info(f"Post-processing transcript with model: {parsed_args.model}")
-            logger.debug(f"Parallel processing: {parsed_args.parallel}")
-            logger.debug(f"Content-aware processing: {parsed_args.content_aware}")
-            logger.debug(f"Cache enabled: {parsed_args.cache}")
-            
-            processed_text = processor.process(
-                text=text_to_process,
-                context=context,
-                language=None if parsed_args.auto_language else parsed_args.input_language,
-                use_parallel=parsed_args.parallel,
-                content_analysis=parsed_args.content_aware
-            )
-            
-            # Update the result with processed text
-            if isinstance(result, str):
-                result = processed_text
-            elif isinstance(result, dict):
-                result["text"] = processed_text
-            elif hasattr(result, "text"):
-                result.text = processed_text
-        
-        # Handle different output formats
-        if output == sys.stdout:
-            if with_timestamps and not subtitle_format:
-                # For timestamped output to stdout, provide a simplified format
-                if isinstance(result, dict) and "segments" in result:
-                    segments = result.get("segments", [])
-                else:
-                    # Handle object or unexpected format
-                    segments = []
-                    logger.warning("No segments found in transcription result for stdout output")
-                
-                for segment in segments:
-                    start_time = segment.get("start", 0)
-                    end_time = segment.get("end", 0)
-                    text = segment.get("text", "").strip()
-                    print(f"[{start_time:.2f} -> {end_time:.2f}] {text}")
-            else:
-                # Regular text output
-                if isinstance(result, str):
-                    print(result)
-                elif isinstance(result, dict) and "text" in result:
-                    print(result.get("text", ""))
-                elif hasattr(result, "text"):
-                    print(result.text)
-                else:
-                    print(str(result))
-        else:
-            # Write to file
-            if with_timestamps and subtitle_format:
-                # Generate subtitle file
-                from transcribe_pkg.utils import subtitle_utils
-                
-                # Ensure result is in the expected format for subtitle generation
-                if not isinstance(result, dict) or "segments" not in result:
-                    # Convert result to dictionary if needed
-                    if hasattr(result, "text") and hasattr(result, "segments"):
-                        # Convert from object to dict
-                        result_dict = {
-                            "text": result.text,
-                            "segments": []
-                        }
-                        for segment in result.segments:
-                            segment_dict = {
-                                "id": getattr(segment, "id", 0),
-                                "start": getattr(segment, "start", 0),
-                                "end": getattr(segment, "end", 0),
-                                "text": getattr(segment, "text", ""),
-                                "words": []
-                            }
-                            if hasattr(segment, "words"):
-                                for word in segment.words:
-                                    segment_dict["words"].append({
-                                        "word": getattr(word, "word", ""),
-                                        "start": getattr(word, "start", 0),
-                                        "end": getattr(word, "end", 0)
-                                    })
-                            result_dict["segments"].append(segment_dict)
-                        result = result_dict
-                    else:
-                        logger.error("Transcription result is not in expected format for subtitle generation")
-                        return 1
-                
-                subtitle_path = subtitle_utils.save_subtitles(
-                    result, 
-                    f"{output}.{subtitle_format}", 
-                    format_type=subtitle_format
-                )
-                if subtitle_path:
-                    logger.info(f"Subtitle file created: {subtitle_path}")
-                else:
-                    logger.error("Failed to create subtitle file")
-            else:
-                # Write text transcript
-                logger.info(f"Writing transcript to {output}")
-                text_content = ""
-                if isinstance(result, str):
-                    text_content = result
-                elif isinstance(result, dict) and "text" in result:
-                    text_content = result.get("text", "")
-                elif hasattr(result, "text"):
-                    text_content = result.text
-                else:
-                    text_content = str(result)
-                
-                with open(output, "w") as f:
-                    f.write(text_content)
-        
+            result = _post_process_transcript(result, parsed_args, logger)
+
+        # Write output in the requested format
+        if not _write_output(result, output_path, use_stdout, with_timestamps, subtitle_format, logger):
+            return 1
+
         logger.info("Transcription complete")
         return 0
         
@@ -378,7 +519,7 @@ Examples:
             logger.debug(traceback.format_exc())
         return 1
 
-def clean_transcript_command(args: Optional[List[str]] = None) -> int:
+def clean_transcript_command(args: Sequence[str] | None = None) -> int:
     """
     Implement the 'clean-transcript' command.
     
@@ -401,6 +542,8 @@ def clean_transcript_command(args: Optional[List[str]] = None) -> int:
         help="Domain-specific context for the transcript (default: none)")
     parser.add_argument("-m", "--model", default="gpt-4o",
         help="OpenAI model to use (default: gpt-4o)")
+    parser.add_argument("--summary-model", default="gpt-4o-mini",
+        help="OpenAI model to use for summaries and context extraction (default: gpt-4o-mini)")
     parser.add_argument("-M", "--max-tokens", type=int, default=4096,
         help="Maximum tokens (default: 4096)")
     parser.add_argument("-s", "--max-chunk-size", type=int, default=3000,
@@ -436,7 +579,7 @@ def clean_transcript_command(args: Optional[List[str]] = None) -> int:
         # Create processor
         processor = TranscriptProcessor(
             model=parsed_args.model,
-            summary_model="gpt-4o-mini",  # Use a smaller model for summaries
+            summary_model=parsed_args.summary_model,
             temperature=parsed_args.temperature,
             max_tokens=parsed_args.max_tokens,
             max_chunk_size=parsed_args.max_chunk_size,
@@ -474,7 +617,7 @@ def clean_transcript_command(args: Optional[List[str]] = None) -> int:
             logger.debug(traceback.format_exc())
         return 1
 
-def create_sentences_command(args: Optional[List[str]] = None) -> int:
+def create_sentences_command(args: Sequence[str] | None = None) -> int:
     """
     Implement the 'create-sentences' command.
     
@@ -563,7 +706,7 @@ def create_sentences_command(args: Optional[List[str]] = None) -> int:
             logger.debug(traceback.format_exc())
         return 1
 
-def language_codes_command(args: Optional[List[str]] = None) -> int:
+def language_codes_command(args: Sequence[str] | None = None) -> int:
     """
     Implement the 'language-codes' command.
     

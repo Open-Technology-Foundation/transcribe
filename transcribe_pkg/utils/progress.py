@@ -8,7 +8,8 @@ long-running operations like transcription, processing, and API calls.
 import sys
 import time
 import logging
-from typing import Optional, Any, Dict, List, Tuple, Union
+from typing import Any
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 class ProgressDisplay:
@@ -20,10 +21,10 @@ class ProgressDisplay:
     """
     
     def __init__(
-        self, 
+        self,
         total: int = 100,
-        description: str = "Progress", 
-        logger: Optional[logging.Logger] = None, 
+        description: str = "Progress",
+        logger: logging.Logger | None = None,
         unit: str = "items",
         show_time: bool = True,
         show_percent: bool = True,
@@ -176,10 +177,10 @@ class ParallelProcessor:
     """
     
     def __init__(
-        self, 
+        self,
         max_workers: int = 4,
         description: str = "Processing",
-        logger: Optional[logging.Logger] = None
+        logger: logging.Logger | None = None
     ):
         """
         Initialize the parallel processor.
@@ -194,12 +195,12 @@ class ParallelProcessor:
         self.logger = logger
     
     def process(
-        self, 
-        items: List[Any], 
-        process_func: callable, 
+        self,
+        items: list[Any],
+        process_func: Callable,
         *args: Any,
         **kwargs: Any
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Process items in parallel with progress tracking.
         

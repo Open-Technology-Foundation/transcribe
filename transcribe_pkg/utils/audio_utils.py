@@ -10,15 +10,19 @@ import logging
 import tempfile
 from pydub import AudioSegment
 from tqdm import tqdm
-from typing import List, Optional, Tuple
 
 from transcribe_pkg.utils.logging_utils import get_logger
 
 class AudioProcessor:
     """
     Handles audio file operations including format conversion and splitting.
+
+    Can be used as a context manager to ensure cleanup of temporary files:
+        with AudioProcessor() as processor:
+            chunks = processor.split_audio("file.mp3")
+            # Temporary files automatically cleaned up on exit
     """
-    
+
     SUPPORTED_EXTENSIONS = {
         '.mp3': 'mp3',
         '.wav': 'wav',
@@ -27,21 +31,30 @@ class AudioProcessor:
         '.ogg': 'ogg',
         '.wma': 'wma',
     }
-    
-    def __init__(self, logger: Optional[logging.Logger] = None):
+
+    def __init__(self, logger: logging.Logger | None = None):
         """
         Initialize with optional logger.
-        
+
         Args:
             logger: Logger instance for output logging
         """
         self.logger = logger or get_logger(__name__)
         self.temp_files = []
-    
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - ensures cleanup."""
+        self.cleanup()
+        return False  # Don't suppress exceptions
+
     def __del__(self):
         """Clean up any temporary files on object destruction."""
         self.cleanup()
-    
+
     def cleanup(self):
         """Remove any temporary files created during processing."""
         for file_path in self.temp_files:
@@ -111,10 +124,10 @@ class AudioProcessor:
         except Exception as e:
             self.logger.error(f"Failed to load audio file: {str(e)}")
             if "ffmpeg returned error code" in str(e):
-                raise ValueError(f"Invalid audio file or format not supported: {audio_path}. Error: {str(e)}")
+                raise ValueError(f"Invalid audio file or format not supported: {audio_path}. Error: {str(e)}") from e
             raise
     
-    def split_audio(self, audio_path: str, chunk_length_ms: int = 600000) -> List[str]:
+    def split_audio(self, audio_path: str, chunk_length_ms: int = 600000) -> list[str]:
         """
         Split audio into chunks of specified length.
         

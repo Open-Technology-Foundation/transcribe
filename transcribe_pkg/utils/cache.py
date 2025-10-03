@@ -11,7 +11,8 @@ import json
 import hashlib
 import time
 import logging
-from typing import Dict, Any, Optional, Union, List, Callable
+from typing import Any
+from collections.abc import Callable
 import pickle
 from pathlib import Path
 
@@ -28,11 +29,11 @@ class CacheManager:
     
     def __init__(
         self,
-        cache_dir: str = None,
+        cache_dir: str | None = None,
         max_memory_items: int = 1000,
         disk_cache_enabled: bool = True,
         memory_cache_enabled: bool = True,
-        logger: Optional[logging.Logger] = None
+        logger: logging.Logger | None = None
     ):
         """
         Initialize the cache manager.
@@ -65,11 +66,11 @@ class CacheManager:
             os.makedirs(self.cache_dir, exist_ok=True)
     
     def get(
-        self, 
-        key: str, 
-        cache_type: str = "both", 
-        max_age: Optional[float] = None
-    ) -> Optional[Any]:
+        self,
+        key: str,
+        cache_type: str = "both",
+        max_age: float | None = None
+    ) -> Any | None:
         """
         Get an item from the cache.
         
@@ -209,7 +210,7 @@ class CacheManager:
             except Exception as e:
                 self.logger.warning(f"Error clearing disk cache: {str(e)}")
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get cache statistics.
         
@@ -313,10 +314,10 @@ class CacheManager:
                 self.logger.warning(f"Error removing cache file: {str(e)}")
 
 def cached(
-    key_func: Optional[Callable] = None,
+    key_func: Callable | None = None,
     cache_type: str = "both",
-    max_age: Optional[float] = None,
-    cache_manager: Optional[CacheManager] = None
+    max_age: float | None = None,
+    cache_manager: CacheManager | None = None
 ) -> Callable:
     """
     Decorator for caching function results.
