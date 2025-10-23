@@ -62,7 +62,11 @@ install_local() {
   # Install dependencies
   echo "📥 Installing dependencies..."
   pip install -r "${SCRIPT_DIR}/requirements.txt"
-  
+
+  # Install the package in development mode
+  echo "📦 Installing package in development mode..."
+  pip install -e "${SCRIPT_DIR}"
+
   # Make scripts executable
   echo "🔑 Making scripts executable..."
   chmod +x "${SCRIPT_DIR}/transcribe"
