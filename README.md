@@ -1,10 +1,11 @@
 # Transcribe
 
-A robust Python package for high-quality audio transcription using OpenAI's Whisper API with intelligent post-processing via GPT models.
+A robust Python package for high-quality audio transcription using OpenAI's Whisper API or local GPU acceleration with intelligent post-processing via GPT models.
 
 ## Features
 
-- **High-Quality Transcription**: Uses OpenAI's Whisper API for accurate audio-to-text conversion
+- **High-Quality Transcription**: Uses OpenAI's Whisper API or local faster-whisper for accurate audio-to-text conversion
+- **Local GPU Transcription**: Optional local transcription using faster-whisper with CUDA support (no API costs)
 - **Intelligent Post-Processing**: GPT models clean and format transcripts for readability
 - **Timestamp Support**: Precise timing information for each speech segment
 - **Subtitle Generation**: Create SRT and VTT subtitle files with proper formatting
@@ -83,12 +84,22 @@ sudo ln -sf /usr/share/transcribe/clean-transcript /usr/local/bin/clean-transcri
 sudo ln -sf /usr/share/transcribe/create-sentences /usr/local/bin/create-sentences
 ```
 
+### Optional: Local GPU Transcription
+
+To enable local transcription with faster-whisper (no API costs):
+
+```bash
+pip install -r requirements-local.txt
+```
+
+This installs faster-whisper which supports CUDA GPU acceleration. If no GPU is available, it falls back to CPU.
+
 ## Quick Start
 
 ### Basic Transcription
 
 ```bash
-# Simple transcription
+# Simple transcription (uses OpenAI API)
 transcribe audio_file.mp3 -o transcript.txt
 
 # With context for better accuracy
@@ -100,8 +111,27 @@ transcribe audio_file.mp3 -o transcript.txt -T
 # Create SRT subtitles
 transcribe audio_file.mp3 --srt
 
-# Create VTT subtitles  
+# Create VTT subtitles
 transcribe audio_file.mp3 --vtt
+```
+
+### Local GPU Transcription
+
+```bash
+# Local transcription (no API costs, requires faster-whisper)
+transcribe audio_file.mp3 --local
+
+# Use a larger model for better accuracy
+transcribe audio_file.mp3 --local --local-model medium
+
+# Force CPU if CUDA is unavailable
+transcribe audio_file.mp3 --local --device cpu
+
+# Local transcription with SRT subtitles
+transcribe audio_file.mp3 --local --srt
+
+# Local transcription without post-processing (fastest)
+transcribe audio_file.mp3 --local -P
 ```
 
 ### Large File Processing
@@ -144,6 +174,11 @@ Processing Options:
   -p, --prompt TEXT          Prompt to guide initial transcription
   -w, --max-workers N        Parallel workers for transcription (default: 1)
 
+Local Transcription Options:
+  --local                   Use local GPU transcription with faster-whisper (no API costs)
+  --local-model MODEL       Whisper model size: tiny, base, small, medium, large-v3 (default: small)
+  --device DEVICE           Device for local transcription: auto, cuda, cpu (default: auto)
+
 Advanced Post-Processing Options:
   --summary-model MODEL      Model for context summarization (default: gpt-4o-mini)
   --auto-context            Auto-determine domain context from content
@@ -165,18 +200,25 @@ Logging Options:
   -d, --debug               Enable debug output
 
 Examples:
-  # Basic transcription
+  # Basic transcription (OpenAI API)
   transcribe audio_file.mp3
-  
+
+  # Local GPU transcription (no API costs)
+  transcribe audio_file.mp3 --local
+
+  # Local with larger model for better accuracy
+  transcribe audio_file.mp3 --local --local-model medium
+
   # Advanced transcription with all features
   transcribe audio_file.mp3 -o transcript.txt --content-aware --parallel --cache
-  
+
   # Transcription with context
   transcribe audio_file.mp3 -c "medical,technical" -m gpt-4o
-  
-  # Generate subtitles
+
+  # Generate subtitles (works with both API and local)
   transcribe audio_file.mp3 --srt
-  
+  transcribe audio_file.mp3 --local --srt
+
   # Parallel processing
   transcribe audio_file.mp3 -w 4 --parallel --max-parallel-workers 4
 ```
@@ -307,11 +349,20 @@ from transcribe_pkg.core.transcriber import Transcriber
 from transcribe_pkg.core.processor import TranscriptProcessor
 from transcribe_pkg.utils.subtitle_utils import save_subtitles
 
-# Initialize transcriber
+# Initialize transcriber with OpenAI API
 transcriber = Transcriber(
     model="whisper-1",
     language="en",
     temperature=0.05,
+    chunk_length_ms=600000
+)
+
+# OR: Initialize with local faster-whisper (no API costs)
+from transcribe_pkg.utils.local_whisper import LocalWhisperClient
+local_client = LocalWhisperClient(model_size="small", device="auto")
+transcriber = Transcriber(
+    api_client=local_client,
+    language="en",
     chunk_length_ms=600000
 )
 
