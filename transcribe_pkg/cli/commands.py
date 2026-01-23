@@ -395,12 +395,18 @@ Examples:
   transcribe audio_file.mp3 -W gpt-4o-mini-transcribe -m gpt-4o
     """
     
+    from transcribe_pkg import __version__
+
     parser = argparse.ArgumentParser(
         description='Transcribe audio files using OpenAI Whisper API or local GPU (faster-whisper)',
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    
+
+    # Version
+    parser.add_argument('-V', '--version', action='version',
+        version=f'transcribe {__version__}')
+
     # Input argument
     parser.add_argument('audio_path',
         help='Path to the input audio file')
