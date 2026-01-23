@@ -105,7 +105,24 @@ def _setup_transcriber(parsed_args: argparse.Namespace, logger: logging.Logger) 
   Returns:
     Configured Transcriber instance
   """
+  api_client = None
+
+  # Use local faster-whisper if --local flag is set
+  if getattr(parsed_args, 'local', False):
+    try:
+      from transcribe_pkg.utils.local_whisper import LocalWhisperClient
+      logger.info(f"Using local transcription with model: {parsed_args.local_model}, device: {parsed_args.device}")
+      api_client = LocalWhisperClient(
+        model_size=parsed_args.local_model,
+        device=parsed_args.device,
+        logger=logger
+      )
+    except ImportError as e:
+      logger.error(f"Local transcription requires faster-whisper: pip install faster-whisper")
+      raise SystemExit(1) from e
+
   return Transcriber(
+    api_client=api_client,
     model=parsed_args.transcribe_model,
     language=parsed_args.input_language,
     temperature=0.05,  # Fixed temperature for transcription
@@ -350,24 +367,36 @@ def transcribe_command(args: Sequence[str] | None = None) -> int:
     """
     epilog = """
 Examples:
-  # Basic transcription
+  # Basic transcription (OpenAI API)
   transcribe audio_file.mp3
-  
+
+  # Local GPU transcription (no API costs)
+  transcribe audio_file.mp3 --local
+
+  # Local transcription with larger model
+  transcribe audio_file.mp3 --local --local-model medium
+
+  # Local transcription with CPU fallback
+  transcribe audio_file.mp3 --local --device cpu
+
   # Advanced transcription with processing options
   transcribe audio_file.mp3 -o transcript.txt --content-aware --parallel --cache
-  
+
   # Transcription with context hints
   transcribe audio_file.mp3 -c "philosophy,science" -m gpt-4o
-  
+
   # Subtitles generation
   transcribe audio_file.mp3 --srt
-  
-  # Use custom models
+
+  # Local transcription with SRT subtitles
+  transcribe audio_file.mp3 --local --srt
+
+  # Use custom OpenAI models
   transcribe audio_file.mp3 -W gpt-4o-mini-transcribe -m gpt-4o
     """
     
     parser = argparse.ArgumentParser(
-        description='Transcribe audio files using OpenAI\'s Whisper API',
+        description='Transcribe audio files using OpenAI Whisper API or local GPU (faster-whisper)',
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -405,6 +434,17 @@ Examples:
         help='Provide a prompt to guide the initial transcription')
     processing_group.add_argument('-w', '--max-workers', type=int, default=1,
         help='Maximum number of parallel workers for transcription (default: 1)')
+
+    # Local transcription options
+    local_group = parser.add_argument_group('Local Transcription Options')
+    local_group.add_argument('--local', action='store_true',
+        help='Use local GPU transcription with faster-whisper instead of OpenAI API')
+    local_group.add_argument('--local-model', default='small',
+        choices=['tiny', 'base', 'small', 'medium', 'large-v3'],
+        help='Whisper model size for local transcription (def: small)')
+    local_group.add_argument('--device', default='auto',
+        choices=['auto', 'cuda', 'cpu'],
+        help='Device for local transcription: auto, cuda, or cpu (def: auto)')
     
     # Post-processing advanced options
     post_processing_group = parser.add_argument_group('Post-Processing Advanced Options')
