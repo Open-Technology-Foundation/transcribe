@@ -18,6 +18,8 @@ __all__ = [
     "APIConnectionError",
     "EmptyResponseError",
     "AudioTranscriptionError",
+    # Local transcription (optional - requires faster-whisper)
+    "LocalWhisperClient",
     # Audio utilities
     "AudioProcessor",
     # Cache utilities
