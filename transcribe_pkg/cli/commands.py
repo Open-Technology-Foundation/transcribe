@@ -575,11 +575,15 @@ def clean_transcript_command(args: Sequence[str] | None = None) -> int:
     Returns:
         Exit code (0 for success, non-zero for error)
     """
+    from transcribe_pkg import __version__
+
     # Set up the ArgumentParser
     parser = argparse.ArgumentParser(
         description="Fix and clean up transcripts using OpenAI API.",
         epilog="Example: clean-transcript raw_transcript.txt -c \"neuroscience, free will\" -m gpt-4o -o clean_transcript.txt"
     )
+    parser.add_argument('-V', '--version', action='version',
+        version=f'clean-transcript {__version__}')
     parser.add_argument("input_file",
         help="Path to the raw text/transcript file")
     parser.add_argument('-L', '--input-language', default=None,
@@ -673,9 +677,13 @@ def create_sentences_command(args: Sequence[str] | None = None) -> int:
     Returns:
         Exit code (0 for success, non-zero for error)
     """
+    from transcribe_pkg import __version__
+
     parser = argparse.ArgumentParser(
         description="Create logical sentences and paragraphs from unstructured text."
     )
+    parser.add_argument('-V', '--version', action='version',
+        version=f'create-sentences {__version__}')
     parser.add_argument("input_file", help="Path to the text file")
     parser.add_argument("-o", "--output", 
                      help="Output file (default: stdout)")
