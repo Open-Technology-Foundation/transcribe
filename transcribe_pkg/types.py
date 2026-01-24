@@ -7,6 +7,8 @@ used throughout the transcribe package for better type safety and IDE support.
 from typing import Any, Protocol, TypedDict, runtime_checkable
 import logging
 
+from transcribe_pkg.constants import DEFAULT_LLM_MODEL
+
 # TypedDict Definitions for Structured Data
 
 class WordTimestamp(TypedDict):
@@ -97,7 +99,7 @@ class APIClientProtocol(Protocol):
     self,
     system_prompt: str,
     user_prompt: str,
-    model: str = "gpt-4o",
+    model: str = DEFAULT_LLM_MODEL,
     temperature: float = 0.0,
     max_tokens: int = 1000
   ) -> str:

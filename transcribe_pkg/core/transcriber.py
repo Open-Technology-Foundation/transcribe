@@ -17,6 +17,7 @@ from transcribe_pkg.utils.logging_utils import get_logger
 from transcribe_pkg.utils.audio_utils import AudioProcessor
 from transcribe_pkg.utils.api_utils import OpenAIClient, APIError
 from transcribe_pkg.types import TranscriptionResult
+from transcribe_pkg.constants import DEFAULT_LLM_MODEL
 
 class Transcriber:
     """
@@ -466,7 +467,7 @@ def transcribe_audio_file(
     audio_path: str,
     output_file: str | None = None,
     context: str = "",
-    model: str = "gpt-4o",
+    model: str = DEFAULT_LLM_MODEL,
     language: str | None = None,
     parallel_processing: bool = False,
     max_workers: int = 1,

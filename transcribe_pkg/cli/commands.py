@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from transcribe_pkg.utils.logging_utils import setup_logging
 from transcribe_pkg.utils.config import Config
 from transcribe_pkg.core.transcriber import Transcriber
+from transcribe_pkg.constants import DEFAULT_LLM_MODEL, DEFAULT_SUMMARY_MODEL
 
 # Helper functions for transcribe_command
 
@@ -430,8 +431,8 @@ Examples:
         help='Provide context for post-processing; eg, medical,legal,technical (def: \'\')')
     processing_group.add_argument('-W', '--transcribe-model', default='whisper-1',
         help='OpenAI Model to use for transcription, eg, gpt-4o-mini-transcribe (def:whisper-1)')
-    processing_group.add_argument('-m', '--model', default='gpt-4o',
-        help='OpenAI LLModel to use for post-processing, eg, gpt-4o, gpt-4o-mini (def: gpt-4o)')
+    processing_group.add_argument('-m', '--model', default=DEFAULT_LLM_MODEL,
+        help=f'LLM model for post-processing (def: {DEFAULT_LLM_MODEL})')
     processing_group.add_argument('-s', '--max-chunk-size', type=int,
         help='Maximum chunk size for post-processing (default: 3000)', default=3000)
     processing_group.add_argument('-t', '--temperature', type=float,
@@ -454,8 +455,8 @@ Examples:
     
     # Post-processing advanced options
     post_processing_group = parser.add_argument_group('Post-Processing Advanced Options')
-    post_processing_group.add_argument('--summary-model', default='gpt-4o-mini',
-        help='OpenAI LLModel to use for context summarization (default: gpt-4o-mini)')
+    post_processing_group.add_argument('--summary-model', default=DEFAULT_SUMMARY_MODEL,
+        help=f'LLM model for context summarization (def: {DEFAULT_SUMMARY_MODEL})')
     post_processing_group.add_argument('--auto-context', action='store_true',
         help='Force auto-detection of domain context (def: enabled when --context not specified)')
     post_processing_group.add_argument('--raw', action='store_true',
@@ -597,13 +598,13 @@ def clean_transcript_command(args: Sequence[str] | None = None) -> int:
         help='Define the language of the text. If specified, text is translated into English (def: None)')
     parser.add_argument("-c", "--context", default=None,
         help="Domain-specific context for the transcript (default: none)")
-    parser.add_argument("-m", "--model", default="gpt-4o",
-        help="LLM model to use (default: gpt-4o). Provider auto-detected from prefix.")
+    parser.add_argument("-m", "--model", default=DEFAULT_LLM_MODEL,
+        help=f"LLM model to use (def: {DEFAULT_LLM_MODEL}). Provider auto-detected from prefix.")
     parser.add_argument("-p", "--provider", default=None,
         choices=["openai", "anthropic", "gemini", "ollama"],
         help="Override provider detection (for custom model names)")
-    parser.add_argument("--summary-model", default="gpt-4o-mini",
-        help="Model to use for summaries and context extraction (default: gpt-4o-mini)")
+    parser.add_argument("--summary-model", default=DEFAULT_SUMMARY_MODEL,
+        help=f"Model for summaries and context extraction (def: {DEFAULT_SUMMARY_MODEL})")
     parser.add_argument("-M", "--max-tokens", type=int, default=4096,
         help="Maximum tokens (default: 4096)")
     parser.add_argument("-s", "--max-chunk-size", type=int, default=3000,

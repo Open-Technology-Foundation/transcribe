@@ -17,6 +17,7 @@ import re
 
 from transcribe_pkg.utils.api_utils import OpenAIClient, APIError, call_llm
 from transcribe_pkg.utils.logging_utils import get_logger
+from transcribe_pkg.constants import DEFAULT_SUMMARY_MODEL
 
 class PromptManager:
     """
@@ -285,7 +286,7 @@ Output ONLY the two-letter code. No explanation, no preamble, no punctuation."""
             context_summary=context_summary_text
         )
     
-    def extract_context(self, text: str, model: str = "gpt-4o-mini") -> str:
+    def extract_context(self, text: str, model: str = DEFAULT_SUMMARY_MODEL) -> str:
         """
         Extract domain context from text.
         
@@ -321,7 +322,7 @@ Output ONLY the two-letter code. No explanation, no preamble, no punctuation."""
             self.logger.error(f"Error extracting context: {str(e)}")
             return ""
     
-    def detect_language(self, text: str, model: str = "gpt-4o-mini") -> str:
+    def detect_language(self, text: str, model: str = DEFAULT_SUMMARY_MODEL) -> str:
         """
         Detect the language of text.
         
@@ -352,7 +353,7 @@ Output ONLY the two-letter code. No explanation, no preamble, no punctuation."""
             self.logger.error(f"Error detecting language: {str(e)}")
             return "en"  # Default to English on error
     
-    def generate_summary(self, text: str, model: str = "gpt-4o-mini") -> str:
+    def generate_summary(self, text: str, model: str = DEFAULT_SUMMARY_MODEL) -> str:
         """
         Generate a summary of text.
         

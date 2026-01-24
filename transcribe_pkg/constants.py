@@ -5,7 +5,7 @@ This module centralizes all magic numbers and configuration constants used
 throughout the application, making them easy to find, update, and document.
 """
 
-# OpenAI API Configuration
+# API Configuration
 
 # Maximum context prompt length for OpenAI's Whisper API
 # This is limited by the API's context window for the prompt parameter
@@ -13,8 +13,11 @@ MAX_CONTEXT_PROMPT_LENGTH = 896
 
 # Default model names
 DEFAULT_WHISPER_MODEL = "whisper-1"
-DEFAULT_GPT_MODEL = "gpt-4o"
-DEFAULT_SUMMARY_MODEL = "gpt-4o-mini"
+DEFAULT_LLM_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_SUMMARY_MODEL = "claude-sonnet-4-20250514"
+
+# Legacy alias for backward compatibility
+DEFAULT_GPT_MODEL = DEFAULT_LLM_MODEL
 
 # Temperature settings for API calls
 # Lower values make output more deterministic
@@ -140,10 +143,11 @@ RETRY_BACKOFF_FACTOR = 2  # Exponential backoff multiplier
 INITIAL_RETRY_DELAY = 1  # seconds
 
 __all__ = [
-  # OpenAI API
+  # API Configuration
   "MAX_CONTEXT_PROMPT_LENGTH",
   "DEFAULT_WHISPER_MODEL",
-  "DEFAULT_GPT_MODEL",
+  "DEFAULT_LLM_MODEL",
+  "DEFAULT_GPT_MODEL",  # Legacy alias
   "DEFAULT_SUMMARY_MODEL",
   "DEFAULT_TRANSCRIPTION_TEMPERATURE",
   "DEFAULT_PROCESSING_TEMPERATURE",

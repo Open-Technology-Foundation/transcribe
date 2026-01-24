@@ -13,6 +13,7 @@ import json
 from transcribe_pkg.utils.logging_utils import get_logger
 from transcribe_pkg.utils.api_utils import OpenAIClient, APIError, call_llm
 from transcribe_pkg.utils.prompts import PromptManager
+from transcribe_pkg.constants import DEFAULT_LLM_MODEL, DEFAULT_SUMMARY_MODEL
 
 class ContentAnalyzer:
     """
@@ -27,7 +28,7 @@ class ContentAnalyzer:
         self,
         api_client: OpenAIClient | None = None,
         prompt_manager: PromptManager | None = None,
-        model: str = "gpt-4o-mini",
+        model: str = DEFAULT_SUMMARY_MODEL,
         logger: logging.Logger | None = None,
         provider: str | None = None
     ):
@@ -384,7 +385,7 @@ class SpecializedProcessor:
         text: str,
         context: str = "",
         language: str | None = None,
-        model: str = "gpt-4o",
+        model: str = DEFAULT_LLM_MODEL,
         temperature: float = 0.05
     ) -> str:
         """
@@ -436,7 +437,7 @@ class SpecializedProcessor:
         text: str,
         context: str = "",
         language: str | None = None,
-        model: str = "gpt-4o-mini",
+        model: str = DEFAULT_SUMMARY_MODEL,
         max_length: int | None = None
     ) -> str:
         """

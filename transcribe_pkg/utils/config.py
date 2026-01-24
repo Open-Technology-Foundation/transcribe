@@ -29,15 +29,21 @@ import argparse
 from pathlib import Path
 from typing import Any
 
+from transcribe_pkg.constants import (
+  DEFAULT_WHISPER_MODEL,
+  DEFAULT_LLM_MODEL,
+  DEFAULT_SUMMARY_MODEL,
+)
+
 # Default configuration values
 DEFAULT_CONFIG = {
   # API settings
   "openai": {
     "api_key": "",  # Will be loaded from environment
     "models": {
-      "transcription": "whisper-1",
-      "completion": "gpt-4o",
-      "summary": "gpt-4o-mini"
+      "transcription": DEFAULT_WHISPER_MODEL,
+      "completion": DEFAULT_LLM_MODEL,
+      "summary": DEFAULT_SUMMARY_MODEL
     }
   },
   

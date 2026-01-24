@@ -26,6 +26,7 @@ from transcribe_pkg.utils.progress import ProgressDisplay
 from transcribe_pkg.utils.cache import CacheManager, cached
 from transcribe_pkg.core.parallel import ParallelProcessor
 from transcribe_pkg.core.analyzer import ContentAnalyzer, SpecializedProcessor
+from transcribe_pkg.constants import DEFAULT_LLM_MODEL, DEFAULT_SUMMARY_MODEL
 
 class TranscriptProcessor:
     """
@@ -41,8 +42,8 @@ class TranscriptProcessor:
     def __init__(
         self,
         api_client: OpenAIClient | None = None,
-        model: str = "gpt-4o",
-        summary_model: str = "gpt-4o-mini",
+        model: str = DEFAULT_LLM_MODEL,
+        summary_model: str = DEFAULT_SUMMARY_MODEL,
         temperature: float = 0.05,
         max_tokens: int = 4096,
         max_chunk_size: int = 3000,
@@ -544,7 +545,7 @@ class TranscriptProcessor:
 
 def process_transcript(
     input_text: str,
-    model: str = "gpt-4o",
+    model: str = DEFAULT_LLM_MODEL,
     max_chunk_size: int = 3000,
     temperature: float = 0.1,
     context: str = "",
@@ -581,7 +582,7 @@ def process_transcript(
 
 def _generate_text_with_continuation(
     text: str,
-    model: str = "gpt-4o", 
+    model: str = DEFAULT_LLM_MODEL,
     max_tokens: int = 1000,
     temperature: float = 0.1,
     context: str = ""

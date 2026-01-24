@@ -21,6 +21,7 @@ from transcribe_pkg.utils.providers.registry import (
   ProviderError,
   clear_client_cache,
 )
+from transcribe_pkg.constants import DEFAULT_LLM_MODEL
 
 class APIError(Exception):
     """Base exception for API-related errors."""
@@ -206,7 +207,7 @@ class OpenAIClient:
         self,
         system_prompt: str,
         user_prompt: str,
-        model: str = "gpt-4o",
+        model: str = DEFAULT_LLM_MODEL,
         temperature: float = 0.0,
         max_tokens: int = 1000,
         reasoning_effort: str | None = None,
@@ -314,7 +315,7 @@ def get_openai_client(api_key: str | None = None) -> OpenAIClient:
         openai_client = _global_client  # For test compatibility
     return _global_client
 
-def call_llm(user_prompt: str, system_prompt: str | None = None, model: str = "gpt-4o",
+def call_llm(user_prompt: str, system_prompt: str | None = None, model: str = DEFAULT_LLM_MODEL,
              temperature: float = 0.1, max_tokens: int | None = None,
              reasoning_effort: str | None = None, verbosity: str | None = None,
              provider: str | None = None) -> str:
@@ -511,7 +512,7 @@ def transcribe_audio(audio_file: str | BinaryIO, model: str = "whisper-1",
         raise AudioTranscriptionError(f"Audio transcription failed: {str(e)}") from e
 
 # Internal implementation functions for testing
-def _call_llm_impl(system_prompt: str, user_prompt: str, model: str = "gpt-4o",
+def _call_llm_impl(system_prompt: str, user_prompt: str, model: str = DEFAULT_LLM_MODEL,
                    temperature: float = 0.1, max_tokens: int | None = None) -> str:
     """
     Internal implementation function for LLM calls (used by tests).

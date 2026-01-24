@@ -7,6 +7,7 @@ from unittest.mock import patch, MagicMock
 
 from transcribe_pkg.core.processor import TranscriptProcessor
 from transcribe_pkg.utils.text_utils import create_sentences, create_paragraphs
+from transcribe_pkg.constants import DEFAULT_LLM_MODEL
 
 class TestTranscriptProcessor(unittest.TestCase):
     """Tests for the TranscriptProcessor class."""
@@ -68,7 +69,7 @@ class TestTranscriptProcessor(unittest.TestCase):
         # Check that call_llm was called with correct arguments
         call_args = mock_call_llm.call_args
         self.assertEqual(call_args[1]["user_prompt"], "This is a test chunk.")
-        self.assertEqual(call_args[1]["model"], "gpt-4o")
+        self.assertEqual(call_args[1]["model"], DEFAULT_LLM_MODEL)
         self.assertEqual(call_args[1]["temperature"], 0.05)
 
         # System prompt should contain context and language info
