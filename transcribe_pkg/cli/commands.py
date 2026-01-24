@@ -579,8 +579,15 @@ def clean_transcript_command(args: Sequence[str] | None = None) -> int:
 
     # Set up the ArgumentParser
     parser = argparse.ArgumentParser(
-        description="Fix and clean up transcripts using OpenAI API.",
-        epilog="Example: clean-transcript raw_transcript.txt -c \"neuroscience, free will\" -m gpt-4o -o clean_transcript.txt"
+        description="Fix and clean up transcripts using LLM providers (OpenAI, Anthropic, Gemini, Ollama).",
+        epilog="""Examples:
+  clean-transcript raw.txt -m gpt-4o                  # OpenAI (default)
+  clean-transcript raw.txt -m claude-3-5-sonnet-20241022   # Anthropic
+  clean-transcript raw.txt -m gemini-1.5-pro          # Google Gemini
+  clean-transcript raw.txt -m ollama/llama3.2         # Local Ollama
+  clean-transcript raw.txt -m custom-model --provider anthropic  # Override
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('-V', '--version', action='version',
         version=f'clean-transcript {__version__}')
@@ -591,9 +598,12 @@ def clean_transcript_command(args: Sequence[str] | None = None) -> int:
     parser.add_argument("-c", "--context", default=None,
         help="Domain-specific context for the transcript (default: none)")
     parser.add_argument("-m", "--model", default="gpt-4o",
-        help="OpenAI model to use (default: gpt-4o)")
+        help="LLM model to use (default: gpt-4o). Provider auto-detected from prefix.")
+    parser.add_argument("-p", "--provider", default=None,
+        choices=["openai", "anthropic", "gemini", "ollama"],
+        help="Override provider detection (for custom model names)")
     parser.add_argument("--summary-model", default="gpt-4o-mini",
-        help="OpenAI model to use for summaries and context extraction (default: gpt-4o-mini)")
+        help="Model to use for summaries and context extraction (default: gpt-4o-mini)")
     parser.add_argument("-M", "--max-tokens", type=int, default=4096,
         help="Maximum tokens (default: 4096)")
     parser.add_argument("-s", "--max-chunk-size", type=int, default=3000,
@@ -633,11 +643,13 @@ def clean_transcript_command(args: Sequence[str] | None = None) -> int:
             temperature=parsed_args.temperature,
             max_tokens=parsed_args.max_tokens,
             max_chunk_size=parsed_args.max_chunk_size,
-            logger=logger
+            logger=logger,
+            provider=parsed_args.provider
         )
-        
+
         # Process the transcript
-        logger.info(f"Processing transcript with model: {parsed_args.model}")
+        provider_info = f" (provider: {parsed_args.provider})" if parsed_args.provider else ""
+        logger.info(f"Processing transcript with model: {parsed_args.model}{provider_info}")
         generated_text = processor.process(
             text=input_text,
             context=parsed_args.context or "",

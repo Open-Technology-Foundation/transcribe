@@ -50,11 +50,12 @@ class TranscriptProcessor:
         cache_enabled: bool = True,
         content_aware: bool = True,
         logger: logging.Logger | None = None,
-        prompt_manager: PromptManager | None = None
+        prompt_manager: PromptManager | None = None,
+        provider: str | None = None
     ):
         """
         Initialize transcript processor with configuration.
-        
+
         Args:
             api_client: OpenAI client for API calls (creates new one if None)
             model: Main model for transcript processing
@@ -67,6 +68,7 @@ class TranscriptProcessor:
             content_aware: Enable content-aware processing
             logger: Logger instance
             prompt_manager: PromptManager instance for handling prompts
+            provider: LLM provider override (openai, anthropic, gemini, ollama)
         """
         self.logger = logger or get_logger(__name__)
         self.api_client = api_client or OpenAIClient(logger=self.logger)
@@ -77,6 +79,7 @@ class TranscriptProcessor:
         self.max_chunk_size = max_chunk_size
         self.cache_enabled = cache_enabled
         self.content_aware = content_aware
+        self.provider = provider
         
         # Set up prompt manager
         self.prompt_manager = prompt_manager or PromptManager(api_client=self.api_client, logger=self.logger)
@@ -285,7 +288,8 @@ class TranscriptProcessor:
                         system_prompt=specialized_prompt,
                         model=self.model,
                         temperature=self.temperature,
-                        max_tokens=self.max_tokens
+                        max_tokens=self.max_tokens,
+                        provider=self.provider
                     )
                     
                     # Cache the result if enabled
@@ -472,13 +476,14 @@ class TranscriptProcessor:
         )
         
         try:
-            # Call the OpenAI API
+            # Call the LLM API
             response = call_llm(
                 user_prompt=chunk,
                 system_prompt=system_prompt,
                 model=self.model,
                 temperature=self.temperature,
-                max_tokens=self.max_tokens
+                max_tokens=self.max_tokens,
+                provider=self.provider
             )
             
             # Return the processed text

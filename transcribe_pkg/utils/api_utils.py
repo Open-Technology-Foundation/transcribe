@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-API utility functions for interacting with OpenAI's services.
+API utility functions for interacting with LLM services.
 
-This module provides classes and functions for interacting with OpenAI's APIs,
-including the Whisper API for audio transcription and GPT models for text processing.
+This module provides classes and functions for interacting with LLM APIs,
+including OpenAI's Whisper API for audio transcription and multiple providers
+(OpenAI, Anthropic, Gemini, Ollama) for text processing.
 """
 import os
 import sys
@@ -14,6 +15,12 @@ import openai
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from transcribe_pkg.utils.logging_utils import get_logger
+from transcribe_pkg.utils.providers.registry import (
+  get_client_for_model,
+  get_provider_for_model,
+  ProviderError,
+  clear_client_cache,
+)
 
 class APIError(Exception):
     """Base exception for API-related errors."""
@@ -309,12 +316,19 @@ def get_openai_client(api_key: str | None = None) -> OpenAIClient:
 
 def call_llm(user_prompt: str, system_prompt: str | None = None, model: str = "gpt-4o",
              temperature: float = 0.1, max_tokens: int | None = None,
-             reasoning_effort: str | None = None, verbosity: str | None = None) -> str:
+             reasoning_effort: str | None = None, verbosity: str | None = None,
+             provider: str | None = None) -> str:
     """
     Call LLM with user and optional system prompts - the authoritative LLM interface.
 
     This is the single point of entry for all LLM calls throughout the codebase.
     It provides consistent error handling, retry logic, and parameter standardization.
+
+    Routes to the appropriate provider based on model prefix:
+      - gpt-*, o1-*, o3-* -> OpenAI
+      - claude-* -> Anthropic
+      - gemini-* -> Google
+      - ollama/*, llama*, mistral*, qwen*, phi* -> Ollama
 
     Args:
         user_prompt: User input text to process
@@ -324,6 +338,7 @@ def call_llm(user_prompt: str, system_prompt: str | None = None, model: str = "g
         max_tokens: Maximum tokens to generate (defaults to None for model default)
         reasoning_effort: Reasoning effort for GPT-5 models ("minimal", "low", "medium", "high")
         verbosity: Verbosity for GPT-5 models ("low", "medium", "high")
+        provider: Optional explicit provider override (openai, anthropic, gemini, ollama)
 
     Returns:
         Generated response text
@@ -331,6 +346,7 @@ def call_llm(user_prompt: str, system_prompt: str | None = None, model: str = "g
     Raises:
         EmptyResponseError: If response is empty
         APIError: For other API errors
+        ProviderError: If provider cannot be determined or SDK not installed
 
     Note:
         This function supports both new parameter order (user_prompt first) and
@@ -340,6 +356,19 @@ def call_llm(user_prompt: str, system_prompt: str | None = None, model: str = "g
         - Use max_completion_tokens instead of max_tokens
         - Do not support custom temperature (only default of 1)
         - Support reasoning_effort and verbosity parameters
+
+    Examples:
+        >>> # OpenAI (default)
+        >>> call_llm("Summarize this text")
+
+        >>> # Anthropic Claude
+        >>> call_llm("Hello!", model="claude-3-5-sonnet-20241022")
+
+        >>> # Local Ollama
+        >>> call_llm("Hello!", model="ollama/llama3.2")
+
+        >>> # Override provider
+        >>> call_llm("Hello!", model="my-custom-model", provider="anthropic")
     """
     # Backward compatibility: detect if old parameter order is being used
     # Legacy calls might pass system_prompt as first parameter
@@ -347,7 +376,7 @@ def call_llm(user_prompt: str, system_prompt: str | None = None, model: str = "g
         # Likely legacy call pattern - but this is fragile, so we'll trust the new order
         pass
 
-    # Use global openai_client if available (for testing), otherwise get a new one
+    # Use global openai_client if available (for testing), otherwise use provider registry
     global openai_client
     if openai_client is not None and hasattr(openai_client, 'chat'):
         # For testing - use the mocked client directly with standard OpenAI interface
@@ -395,17 +424,36 @@ def call_llm(user_prompt: str, system_prompt: str | None = None, model: str = "g
             else:
                 raise APIError(f"API error: {str(e)}") from e
     else:
-        # For production - use our OpenAIClient wrapper
-        client = get_openai_client()
-        response = client.chat_completion(
-            user_prompt=user_prompt,
-            system_prompt=system_prompt,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            reasoning_effort=reasoning_effort,
-            verbosity=verbosity
-        )
+        # For production - use provider registry for multi-provider support
+        try:
+            detected_provider = get_provider_for_model(model, provider)
+        except ProviderError:
+            # Fall back to OpenAI for unrecognized models without explicit provider
+            detected_provider = "openai"
+
+        # Check if this is an OpenAI model that might need special handling
+        if detected_provider == "openai" and (_is_reasoning_model(model) or reasoning_effort or verbosity):
+            # Use the full OpenAIClient with reasoning model support
+            client = get_openai_client()
+            response = client.chat_completion(
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
+                verbosity=verbosity
+            )
+        else:
+            # Use provider registry for standard LLM calls
+            llm_client = get_client_for_model(model, provider)
+            response = llm_client.chat_completion(
+                system_prompt=system_prompt or "",
+                user_prompt=user_prompt,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens or 4096,
+            )
 
     return response
 
@@ -563,5 +611,28 @@ def _transcribe_audio_impl(audio_file: str | BinaryIO, model: str = "whisper-1",
         
     except openai.APIError as e:
         raise APIError(f"OpenAI API error: {str(e)}") from e
+
+
+# Re-export provider-related items for convenience
+__all__ = [
+    # Error classes
+    "APIError",
+    "APIRateLimitError",
+    "APIAuthenticationError",
+    "APIConnectionError",
+    "EmptyResponseError",
+    "AudioTranscriptionError",
+    "ProviderError",
+    # OpenAI client (for audio transcription)
+    "OpenAIClient",
+    "get_openai_client",
+    # Main LLM interface
+    "call_llm",
+    "transcribe_audio",
+    # Provider registry
+    "get_client_for_model",
+    "get_provider_for_model",
+    "clear_client_cache",
+]
 
 #fin
