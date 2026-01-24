@@ -14,7 +14,7 @@ MAX_CONTEXT_PROMPT_LENGTH = 896
 # Default model names
 DEFAULT_WHISPER_MODEL = "whisper-1"
 DEFAULT_LLM_MODEL = "claude-sonnet-4-20250514"
-DEFAULT_SUMMARY_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_SUMMARY_MODEL = "claude-haiku-4-5-20251001"
 
 # Legacy alias for backward compatibility
 DEFAULT_GPT_MODEL = DEFAULT_LLM_MODEL
