@@ -28,16 +28,23 @@ class PromptManager:
     - Context-specific prompt generation
     """
     
-    def __init__(self, api_client: OpenAIClient | None = None, logger: logging.Logger | None = None):
+    def __init__(
+        self,
+        api_client: OpenAIClient | None = None,
+        logger: logging.Logger | None = None,
+        provider: str | None = None
+    ):
         """
         Initialize the prompt manager.
-        
+
         Args:
             api_client: OpenAI client instance (creates new if None)
             logger: Logger instance
+            provider: LLM provider override (openai, anthropic, gemini, ollama)
         """
         self.logger = logger or get_logger(__name__)
         self.api_client = api_client or OpenAIClient(logger=self.logger)
+        self.provider = provider
         
         # Initialize template storage
         self._templates = {
@@ -301,7 +308,8 @@ Output ONLY the two-letter code. No explanation, no preamble, no punctuation."""
                 model=model,
                 temperature=0.0,
                 max_tokens=200,
-                reasoning_effort=reasoning_effort
+                reasoning_effort=reasoning_effort,
+                provider=self.provider
             )
             result = response.strip()
             if not result:
@@ -336,7 +344,8 @@ Output ONLY the two-letter code. No explanation, no preamble, no punctuation."""
                 model=model,
                 temperature=0.0,
                 max_tokens=50,
-                reasoning_effort=reasoning_effort
+                reasoning_effort=reasoning_effort,
+                provider=self.provider
             )
             return response.strip()
         except Exception as e:
@@ -361,7 +370,8 @@ Output ONLY the two-letter code. No explanation, no preamble, no punctuation."""
                 system_prompt=system_prompt,
                 model=model,
                 temperature=0.0,
-                max_tokens=1000
+                max_tokens=1000,
+                provider=self.provider
             )
             return response.strip()
         except Exception as e:

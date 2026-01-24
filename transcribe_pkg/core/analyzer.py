@@ -28,22 +28,26 @@ class ContentAnalyzer:
         api_client: OpenAIClient | None = None,
         prompt_manager: PromptManager | None = None,
         model: str = "gpt-4o-mini",
-        logger: logging.Logger | None = None
+        logger: logging.Logger | None = None,
+        provider: str | None = None
     ):
         """
         Initialize the content analyzer.
-        
+
         Args:
             api_client: OpenAI client for API calls
             prompt_manager: Prompt manager for generating prompts
             model: Model to use for analysis
             logger: Logger instance
+            provider: LLM provider override (openai, anthropic, gemini, ollama)
         """
         self.logger = logger or get_logger(__name__)
         self.api_client = api_client or OpenAIClient(logger=self.logger)
+        self.provider = provider
         self.prompt_manager = prompt_manager or PromptManager(
             api_client=self.api_client,
-            logger=self.logger
+            logger=self.logger,
+            provider=provider
         )
         self.model = model
     
@@ -176,7 +180,8 @@ Respond with ONLY ONE WORD - the category name in lowercase (dialogue, technical
                 model=self.model,
                 temperature=0.0,
                 max_tokens=100,
-                reasoning_effort=reasoning_effort
+                reasoning_effort=reasoning_effort,
+                provider=self.provider
             )
 
             # Extract content type from response
@@ -229,16 +234,16 @@ Respond with ONLY ONE WORD - the category name in lowercase (dialogue, technical
     def _detect_language(self, text: str) -> str:
         """
         Detect the language of the text.
-        
+
         Args:
             text: Text to analyze
-            
+
         Returns:
             ISO 639-1 language code (e.g., 'en', 'fr')
         """
-        # Use prompt manager's language detection
+        # Use prompt manager's language detection with configured model
         try:
-            return self.prompt_manager.detect_language(text[:1000])
+            return self.prompt_manager.detect_language(text[:1000], model=self.model)
         except Exception as e:
             self.logger.warning(f"Error detecting language: {str(e)}")
             return "en"  # Default to English
@@ -298,16 +303,16 @@ Respond with ONLY ONE WORD - the category name in lowercase (dialogue, technical
     def _extract_domains(self, text: str) -> list[str]:
         """
         Extract domain-specific knowledge areas from the text.
-        
+
         Args:
             text: Text to analyze
-            
+
         Returns:
             List of domain areas
         """
-        # Use prompt manager to extract context
+        # Use prompt manager to extract context with configured model
         try:
-            context_str = self.prompt_manager.extract_context(text[:3000])
+            context_str = self.prompt_manager.extract_context(text[:3000], model=self.model)
             if not context_str:
                 self.logger.debug("Empty context string from extract_context, no domains extracted")
                 return []
@@ -353,21 +358,25 @@ class SpecializedProcessor:
         self,
         api_client: OpenAIClient | None = None,
         analyzer: ContentAnalyzer | None = None,
-        logger: logging.Logger | None = None
+        logger: logging.Logger | None = None,
+        provider: str | None = None
     ):
         """
         Initialize the specialized processor.
-        
+
         Args:
             api_client: OpenAI client for API calls
             analyzer: Content analyzer instance
             logger: Logger instance
+            provider: LLM provider override (openai, anthropic, gemini, ollama)
         """
         self.logger = logger or get_logger(__name__)
         self.api_client = api_client or OpenAIClient(logger=self.logger)
+        self.provider = provider
         self.analyzer = analyzer or ContentAnalyzer(
             api_client=self.api_client,
-            logger=self.logger
+            logger=self.logger,
+            provider=provider
         )
     
     def process_content(
@@ -413,9 +422,10 @@ class SpecializedProcessor:
                 system_prompt=system_prompt,
                 model=model,
                 temperature=temperature,
-                max_tokens=4096
+                max_tokens=4096,
+                provider=self.provider
             )
-            
+
             return response.strip()
         except Exception as e:
             self.logger.error(f"Error processing content: {str(e)}")
@@ -467,9 +477,10 @@ class SpecializedProcessor:
                 system_prompt=system_prompt,
                 model=model,
                 temperature=0.0,
-                max_tokens=1000
+                max_tokens=1000,
+                provider=self.provider
             )
-            
+
             return response.strip()
         except Exception as e:
             self.logger.error(f"Error summarizing content: {str(e)}")

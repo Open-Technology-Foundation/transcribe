@@ -82,20 +82,26 @@ class TranscriptProcessor:
         self.provider = provider
         
         # Set up prompt manager
-        self.prompt_manager = prompt_manager or PromptManager(api_client=self.api_client, logger=self.logger)
-        
+        self.prompt_manager = prompt_manager or PromptManager(
+            api_client=self.api_client,
+            logger=self.logger,
+            provider=self.provider
+        )
+
         # Set up content analyzer if content-aware processing is enabled
         if self.content_aware:
             self.content_analyzer = ContentAnalyzer(
                 api_client=self.api_client,
                 prompt_manager=self.prompt_manager,
                 model=self.summary_model,
-                logger=self.logger
+                logger=self.logger,
+                provider=self.provider
             )
             self.specialized_processor = SpecializedProcessor(
                 api_client=self.api_client,
                 analyzer=self.content_analyzer,
-                logger=self.logger
+                logger=self.logger,
+                provider=self.provider
             )
         
         # Set up cache manager if caching is enabled
@@ -152,11 +158,11 @@ class TranscriptProcessor:
                     language = cached_language
                     self.logger.info(f"Using cached language detection: {language}")
                 else:
-                    language = self.prompt_manager.detect_language(sample_text)
+                    language = self.prompt_manager.detect_language(sample_text, model=self.summary_model)
                     self.cache_manager.set(cache_key, language)
                     self.logger.info(f"Auto-detected language: {language}")
             else:
-                language = self.prompt_manager.detect_language(sample_text)
+                language = self.prompt_manager.detect_language(sample_text, model=self.summary_model)
                 self.logger.info(f"Auto-detected language: {language}")
         
         # Check if parallel processing is explicitly requested
