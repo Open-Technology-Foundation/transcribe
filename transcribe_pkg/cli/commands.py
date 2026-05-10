@@ -654,7 +654,8 @@ def clean_transcript_command(args: Sequence[str] | None = None) -> int:
         generated_text = processor.process(
             text=input_text,
             context=parsed_args.context or "",
-            language=parsed_args.input_language
+            language=parsed_args.input_language,
+            use_parallel=False
         )
         
         # Output the result
