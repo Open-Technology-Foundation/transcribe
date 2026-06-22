@@ -10,12 +10,10 @@ It runs a series of tests with different combinations of flags to validate
 that the fix for the parallel flag issue is working correctly.
 """
 
-import os
-import sys
 import time
 import logging
 import subprocess
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 # Configure logging
 logging.basicConfig(

@@ -5,7 +5,6 @@ This module defines type aliases, TypedDict classes, and Protocol definitions
 used throughout the transcribe package for better type safety and IDE support.
 """
 from typing import Any, Protocol, TypedDict, runtime_checkable
-import logging
 
 from transcribe_pkg.constants import DEFAULT_LLM_MODEL
 

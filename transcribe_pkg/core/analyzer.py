@@ -5,13 +5,11 @@ Content analysis and specialized processing.
 This module provides advanced analysis and specialized processing of transcripts,
 detecting content characteristics and applying appropriate strategies.
 """
-import re
 import logging
 from typing import Any
-import json
 
 from transcribe_pkg.utils.logging_utils import get_logger
-from transcribe_pkg.utils.api_utils import OpenAIClient, APIError, call_llm
+from transcribe_pkg.utils.api_utils import OpenAIClient, call_llm
 from transcribe_pkg.utils.prompts import PromptManager
 from transcribe_pkg.constants import DEFAULT_LLM_MODEL, DEFAULT_SUMMARY_MODEL
 
@@ -171,9 +169,9 @@ Categories:
 
 Respond with ONLY ONE WORD - the category name in lowercase (dialogue, technical, speech, lecture, or general). No explanation, no punctuation, just the single word."""
 
-            # Use minimal reasoning effort for GPT-5 models for faster classification
-            from transcribe_pkg.utils.api_utils import _is_reasoning_model
-            reasoning_effort = "minimal" if _is_reasoning_model(self.model) else None
+            # Use minimal reasoning effort for reasoning models for faster classification
+            from transcribe_pkg.utils.api_utils import _default_reasoning_effort
+            reasoning_effort = _default_reasoning_effort(self.model)
 
             response = call_llm(
                 user_prompt=text[:3000],

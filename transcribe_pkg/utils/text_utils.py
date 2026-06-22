@@ -15,10 +15,8 @@ functionality specific to transcript processing needs, with special attention
 to API limitations and readability concerns.
 """
 
-import logging
 import nltk
 import re
-from typing import Any
 from collections import Counter
 from nltk.tokenize import sent_tokenize
 
@@ -191,7 +189,7 @@ def split_text_for_processing(
         # If we couldn't fit any sentence, force-add the first one to avoid infinite loop
         if not current_sentences and sentence_index < total_sentences:
             logger = get_logger(__name__)
-            logger.warning(f"Sentence exceeds max_chunk_size, force-adding to avoid infinite loop")
+            logger.warning("Sentence exceeds max_chunk_size, force-adding to avoid infinite loop")
             current_sentences.append(all_sentences[sentence_index])
             sentence_index += 1
 

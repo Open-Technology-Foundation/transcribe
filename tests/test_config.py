@@ -7,7 +7,6 @@ import json
 import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
-from pathlib import Path
 
 from transcribe_pkg.utils.config import Config
 

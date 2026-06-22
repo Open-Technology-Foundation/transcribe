@@ -14,19 +14,59 @@ The post-processing improves readability, fixes grammar, removes hesitations,
 and creates logical paragraphs while preserving the original meaning.
 """
 
+import hashlib
 import logging
 from typing import Any
-import sys
 
 from transcribe_pkg.utils.api_utils import OpenAIClient, APIError, call_llm
 from transcribe_pkg.utils.logging_utils import get_logger
-from transcribe_pkg.utils.text_utils import create_sentences, create_paragraphs
+from transcribe_pkg.utils.text_utils import create_sentences
 from transcribe_pkg.utils.prompts import PromptManager
 from transcribe_pkg.utils.progress import ProgressDisplay
-from transcribe_pkg.utils.cache import CacheManager, cached
+from transcribe_pkg.utils.cache import CacheManager
 from transcribe_pkg.core.parallel import ParallelProcessor
 from transcribe_pkg.core.analyzer import ContentAnalyzer, SpecializedProcessor
 from transcribe_pkg.constants import DEFAULT_LLM_MODEL, DEFAULT_SUMMARY_MODEL
+
+
+def _stable_hash(*parts: object) -> str:
+    """Deterministic SHA-256 digest of the given parts, stable across processes.
+
+    Python's builtin hash() is salted per process (PYTHONHASHSEED), so it must
+    never be used to build persistent cache keys. The NUL separator ensures
+    distinct argument groupings cannot collide.
+    """
+    h = hashlib.sha256()
+    for part in parts:
+        h.update(repr(part).encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+def _language_cache_key(sample_text: str, summary_model: str) -> str:
+    """Stable cache key for language detection (keyed by sample text + model)."""
+    return f"language_detection:{_stable_hash(sample_text, summary_model)}"
+
+
+def _chunk_cache_key(
+    chunk: str,
+    chunk_context: str,
+    language: str,
+    model: str,
+    temperature: float,
+    max_tokens: int | None,
+    provider: str | None,
+    prompt_id: str,
+) -> str:
+    """Stable cache key for chunk post-processing.
+
+    Includes every parameter that changes the LLM output -- provider, max_tokens
+    and the prompt identity included -- so a cached entry is never served for a
+    different request shape (e.g. specialized vs standard processing).
+    """
+    return "chunk_processing:" + _stable_hash(
+        chunk, chunk_context, language, model, temperature, max_tokens, provider, prompt_id
+    )
 
 class TranscriptProcessor:
     """
@@ -153,7 +193,7 @@ class TranscriptProcessor:
             
             # Try to get from cache first
             if self.cache_enabled:
-                cache_key = f"language_detection:{hash(sample_text)}"
+                cache_key = _language_cache_key(sample_text, self.summary_model)
                 cached_language = self.cache_manager.get(cache_key)
                 if cached_language:
                     language = cached_language
@@ -195,7 +235,7 @@ class TranscriptProcessor:
         
         # If parallel processing is not requested, or text is small enough
         elif total_length <= self.max_chunk_size:
-            self.logger.info(f"Text is small enough for single-chunk processing")
+            self.logger.info("Text is small enough for single-chunk processing")
             
             if content_analysis and self.content_aware:
                 # Use content-aware processing
@@ -281,7 +321,15 @@ class TranscriptProcessor:
             
             # Create a cache key for this chunk if caching is enabled
             if self.cache_enabled:
-                cache_key = f"chunk_processing:{hash(chunk)}:{hash(chunk_context)}:{language}:{self.model}:{self.temperature}"
+                prompt_id = (
+                    _stable_hash(specialized_prompt)
+                    if (specialized_prompt and content_analysis)
+                    else "standard"
+                )
+                cache_key = _chunk_cache_key(
+                    chunk, chunk_context, language, self.model,
+                    self.temperature, self.max_tokens, self.provider, prompt_id,
+                )
                 cached_result = self.cache_manager.get(cache_key)
                 if cached_result is not None:
                     self.logger.debug(f"Using cached result for chunk {chunk_index}")

@@ -12,10 +12,8 @@ throughout the transcription toolkit. It includes:
 - Template management for customizing prompts
 """
 import logging
-from typing import Any
-import re
 
-from transcribe_pkg.utils.api_utils import OpenAIClient, APIError, call_llm
+from transcribe_pkg.utils.api_utils import OpenAIClient, call_llm
 from transcribe_pkg.utils.logging_utils import get_logger
 from transcribe_pkg.constants import DEFAULT_SUMMARY_MODEL
 
@@ -299,9 +297,9 @@ Output ONLY the two-letter code. No explanation, no preamble, no punctuation."""
         """
         system_prompt = self.get_template('context_extraction')
         try:
-            # Use minimal reasoning effort for GPT-5 models for faster classification
-            from transcribe_pkg.utils.api_utils import _is_reasoning_model
-            reasoning_effort = "minimal" if _is_reasoning_model(model) else None
+            # Use minimal reasoning effort for reasoning models for faster classification
+            from transcribe_pkg.utils.api_utils import _default_reasoning_effort
+            reasoning_effort = _default_reasoning_effort(model)
 
             response = call_llm(
                 user_prompt=text,
@@ -335,9 +333,9 @@ Output ONLY the two-letter code. No explanation, no preamble, no punctuation."""
         """
         system_prompt = self.get_template('language_detection')
         try:
-            # Use minimal reasoning effort for GPT-5 models for faster classification
-            from transcribe_pkg.utils.api_utils import _is_reasoning_model
-            reasoning_effort = "minimal" if _is_reasoning_model(model) else None
+            # Use minimal reasoning effort for reasoning models for faster classification
+            from transcribe_pkg.utils.api_utils import _default_reasoning_effort
+            reasoning_effort = _default_reasoning_effort(model)
 
             response = call_llm(
                 user_prompt=text,

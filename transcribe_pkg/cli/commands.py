@@ -6,14 +6,12 @@ This module provides the command-line interface for the transcription package,
 implementing the commands available through the console scripts.
 """
 import os
-import sys
 import argparse
 import logging
 from typing import Any
 from collections.abc import Sequence
 
 from transcribe_pkg.utils.logging_utils import setup_logging
-from transcribe_pkg.utils.config import Config
 from transcribe_pkg.core.transcriber import Transcriber
 from transcribe_pkg.constants import DEFAULT_LLM_MODEL, DEFAULT_SUMMARY_MODEL
 
@@ -119,7 +117,7 @@ def _setup_transcriber(parsed_args: argparse.Namespace, logger: logging.Logger) 
         logger=logger
       )
     except ImportError as e:
-      logger.error(f"Local transcription requires faster-whisper: pip install faster-whisper")
+      logger.error("Local transcription requires faster-whisper: pip install faster-whisper")
       raise SystemExit(1) from e
 
   return Transcriber(

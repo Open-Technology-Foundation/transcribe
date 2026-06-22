@@ -40,15 +40,15 @@ def setup_logging(verbose=False, debug=False, log_file=None):
     if debug:
         logger.setLevel(logging.DEBUG)
         datefmt = "%H:%M:%S"
-        logformat = f"%(log_color)s%(asctime)s:%(module)s:%(levelname)s: %(message)s"
+        logformat = "%(log_color)s%(asctime)s:%(module)s:%(levelname)s: %(message)s"
     elif verbose:
         logger.setLevel(logging.INFO)
         datefmt = "%H:%M:%S"
-        logformat = f"%(log_color)s%(asctime)s:%(module)s:%(levelname)s: %(message)s"
+        logformat = "%(log_color)s%(asctime)s:%(module)s:%(levelname)s: %(message)s"
     else:
         logger.setLevel(logging.ERROR)
         datefmt = None
-        logformat = f"%(log_color)s%(module)s:%(levelname)s: %(message)s"
+        logformat = "%(log_color)s%(module)s:%(levelname)s: %(message)s"
     
     # Configure console handler with color
     console_handler = colorlog.StreamHandler()

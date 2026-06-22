@@ -8,14 +8,13 @@ Whisper API, and handling timestamped output.
 """
 import os
 import logging
-import tempfile
-from typing import Any, overload, Literal
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import overload, Literal
+from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 
 from transcribe_pkg.utils.logging_utils import get_logger
 from transcribe_pkg.utils.audio_utils import AudioProcessor
-from transcribe_pkg.utils.api_utils import OpenAIClient, APIError
+from transcribe_pkg.utils.api_utils import OpenAIClient
 from transcribe_pkg.types import TranscriptionResult
 from transcribe_pkg.constants import DEFAULT_LLM_MODEL
 
@@ -495,10 +494,10 @@ def transcribe_audio_file(
         APIError: For API-related errors
         FileNotFoundError: If audio file doesn't exist
     """
-    # Initialize transcriber
+    # Initialize transcriber (max_workers is a transcribe() argument, not a
+    # constructor argument)
     transcriber = Transcriber(
-        language=language,
-        max_workers=max_workers if parallel_processing else 1
+        language=language
     )
     
     # Transcribe the audio

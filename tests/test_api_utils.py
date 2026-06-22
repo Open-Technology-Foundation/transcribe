@@ -7,12 +7,12 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 from transcribe_pkg.utils.api_utils import (
+    OpenAIClient,
     get_openai_client,
     call_llm,
     transcribe_audio,
     APIError,
-    EmptyResponseError,
-    AudioTranscriptionError
+    EmptyResponseError
 )
 
 class TestAPIUtils(unittest.TestCase):
@@ -21,7 +21,12 @@ class TestAPIUtils(unittest.TestCase):
     @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-api-key'})
     @patch('openai.OpenAI')
     def test_get_openai_client(self, mock_openai):
-        """Test getting OpenAI client with API key."""
+        """Test getting OpenAI client with API key (SDK client built lazily on use)."""
+        # Reset globals for test isolation
+        import transcribe_pkg.utils.api_utils as api_utils_module
+        api_utils_module._global_client = None
+        api_utils_module.openai_client = None
+
         # Setup mock
         mock_client = MagicMock()
         mock_openai.return_value = mock_client
@@ -29,24 +34,41 @@ class TestAPIUtils(unittest.TestCase):
         # Call function
         client = get_openai_client()
 
-        # Check results - client is an OpenAIClient instance, not the raw openai client
+        # Check results - client is an OpenAIClient wrapper, not the raw openai client
         self.assertIsNotNone(client)
+        # The underlying SDK client is constructed lazily on first access
+        self.assertIs(client.client, mock_client)
         mock_openai.assert_called_once_with(api_key='test-api-key')
     
     @patch.dict(os.environ, {'OPENAI_API_KEY': ''})  # Empty string instead of completely missing
     def test_get_openai_client_no_key(self):
-        """Test getting OpenAI client without API key."""
+        """Without a key, getting the client is lazy; only USING it raises ValueError."""
         # Clear global client to ensure test isolation
         import transcribe_pkg.utils.api_utils as api_utils_module
         api_utils_module._global_client = None
         api_utils_module.openai_client = None
 
-        # Call function, should raise ValueError
+        # Getting the client must NOT raise (construction is lazy)
+        try:
+            client = get_openai_client()
+        except ValueError:
+            self.fail("get_openai_client() must not require a key until the client is used")
+
+        # Using the underlying SDK client without a key must raise
         with self.assertRaises(ValueError) as context:
-            get_openai_client()
+            _ = client.client
 
         # Check error message
         self.assertIn("API key is required", str(context.exception))
+
+    @patch.dict(os.environ, {'OPENAI_API_KEY': ''})
+    def test_openai_client_construction_is_lazy_without_key(self):
+        """OpenAIClient can be constructed without a key (e.g. as the default
+        dependency of a non-OpenAI processor); the key is only needed on use."""
+        try:
+            OpenAIClient()
+        except ValueError:
+            self.fail("OpenAIClient construction must be lazy and not require a key")
     
     @patch('transcribe_pkg.utils.api_utils.openai_client')
     def test_call_llm_success(self, mock_client):
@@ -173,6 +195,33 @@ class TestAPIUtils(unittest.TestCase):
 
         # Verify transcription still works
         self.assertEqual(result, "Test transcription")
+
+
+class TestDefaultReasoningEffort(unittest.TestCase):
+    """`_default_reasoning_effort` must return an SDK-accepted reasoning_effort.
+
+    The installed OpenAI SDK's ReasoningEffort literal accepts only the values in
+    VALID_REASONING_EFFORTS; "none" / "xhigh" are rejected by the API with a 400.
+    The default must stay inside that set, or be None to omit the parameter.
+    """
+
+    # Valid for openai>=2.1 (ReasoningEffort = Literal["minimal","low","medium","high"]).
+    VALID_REASONING_EFFORTS = {"minimal", "low", "medium", "high"}
+
+    def test_reasoning_model_default_is_sdk_valid(self):
+        """A reasoning model gets a default effort the SDK actually accepts."""
+        from transcribe_pkg.utils.api_utils import _default_reasoning_effort
+        effort = _default_reasoning_effort("gpt-5")
+        self.assertIn(
+            effort, self.VALID_REASONING_EFFORTS,
+            f"reasoning_effort {effort!r} is not a valid OpenAI ReasoningEffort value"
+        )
+
+    def test_non_reasoning_model_omits_effort(self):
+        """A non-reasoning model returns None so the parameter is omitted."""
+        from transcribe_pkg.utils.api_utils import _default_reasoning_effort
+        self.assertIsNone(_default_reasoning_effort("gpt-4o"))
+
 
 if __name__ == '__main__':
     unittest.main()

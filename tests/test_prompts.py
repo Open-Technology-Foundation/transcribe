@@ -3,7 +3,7 @@
 Tests for prompt management functionality.
 """
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from transcribe_pkg.utils.prompts import PromptManager
 from transcribe_pkg.constants import DEFAULT_SUMMARY_MODEL

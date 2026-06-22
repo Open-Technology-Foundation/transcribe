@@ -6,12 +6,10 @@ This script tests the parallel transcription feature with a medium-sized audio f
 to better demonstrate the performance impact of parallel processing.
 """
 
-import os
-import sys
 import time
 import logging
 import subprocess
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 # Configure logging
 logging.basicConfig(

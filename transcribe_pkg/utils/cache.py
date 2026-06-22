@@ -7,14 +7,12 @@ transcription, and processing, helping to save time and resources when
 working with large files or repeatedly processing the same content.
 """
 import os
-import json
 import hashlib
 import time
 import logging
 from typing import Any
 from collections.abc import Callable
 import pickle
-from pathlib import Path
 
 from transcribe_pkg.utils.logging_utils import get_logger
 

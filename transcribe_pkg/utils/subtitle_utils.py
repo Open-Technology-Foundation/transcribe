@@ -10,9 +10,7 @@ Both formats include timestamp information for synchronizing text with audio/vid
 """
 
 import os
-import logging
 import functools
-from datetime import timedelta
 from typing import Any
 
 from transcribe_pkg.utils.logging_utils import get_logger

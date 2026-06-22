@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
-from transcribe_pkg.core.transcriber import transcribe_audio_file
+from transcribe_pkg.core.transcriber import Transcriber, transcribe_audio_file
 from transcribe_pkg.core.processor import process_transcript
 
 class TestIntegration(unittest.TestCase):
@@ -74,12 +74,34 @@ class TestIntegration(unittest.TestCase):
         with open(self.output_path, 'r') as f:
             content = f.read()
             self.assertEqual(content, "Processed transcript")
-    
+
+    @patch.object(Transcriber, 'transcribe', return_value="fake transcript")
+    def test_transcribe_audio_file_constructs_real_transcriber(self, mock_transcribe):
+        """Regression: transcribe_audio_file must build Transcriber with valid kwargs.
+
+        The end-to-end test above mocks out the whole Transcriber class, which hides
+        that the real __init__ rejects a max_workers kwarg. Here only the transcribe()
+        method is patched, so the real constructor runs and an invalid kwarg surfaces.
+        """
+        result = transcribe_audio_file(
+            audio_path="dummy.mp3",
+            parallel_processing=True,
+            max_workers=4,
+        )
+        self.assertEqual(result, "fake transcript")
+        mock_transcribe.assert_called_once()
+
+    @patch('transcribe_pkg.core.processor.CacheManager')
     @patch('transcribe_pkg.core.processor.call_llm')
-    @patch('transcribe_pkg.core.analyzer.call_llm') 
+    @patch('transcribe_pkg.core.analyzer.call_llm')
     @patch('transcribe_pkg.utils.prompts.call_llm')
-    def test_process_transcript_integration(self, mock_prompts_call_llm, mock_analyzer_call_llm, mock_processor_call_llm):
+    def test_process_transcript_integration(
+        self, mock_prompts_call_llm, mock_analyzer_call_llm, mock_processor_call_llm, mock_cache_manager
+    ):
         """Test transcript processing integration."""
+        # Force cache misses so this test exercises call_llm regardless of any
+        # persisted on-disk cache (chunk cache keys are stable across runs).
+        mock_cache_manager.return_value.get.return_value = None
         # Setup mocks to return appropriate responses
         mock_processor_call_llm.side_effect = ["First chunk processed.", "Second chunk processed."]
         mock_analyzer_call_llm.return_value = "general"  # content type

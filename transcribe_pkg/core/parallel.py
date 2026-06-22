@@ -10,8 +10,6 @@ import logging
 from typing import Any
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-import time
-import json
 
 from transcribe_pkg.utils.logging_utils import get_logger
 from transcribe_pkg.utils.progress import ProgressDisplay

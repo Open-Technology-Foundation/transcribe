@@ -3,7 +3,7 @@
 Tests for content analysis functionality.
 """
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from transcribe_pkg.core.analyzer import ContentAnalyzer, SpecializedProcessor
 from transcribe_pkg.constants import DEFAULT_LLM_MODEL, DEFAULT_SUMMARY_MODEL

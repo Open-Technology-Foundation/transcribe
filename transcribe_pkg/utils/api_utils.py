@@ -7,9 +7,7 @@ including OpenAI's Whisper API for audio transcription and multiple providers
 (OpenAI, Anthropic, Gemini, Ollama) for text processing.
 """
 import os
-import sys
 import logging
-import json
 from typing import Any, BinaryIO
 import openai
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -66,6 +64,16 @@ def _is_reasoning_model(model: str) -> bool:
         model_lower.startswith('o3')
     )
 
+def _default_reasoning_effort(model: str) -> str | None:
+    """
+    Default reasoning_effort for lightweight auxiliary calls (classification,
+    language/context detection).
+
+    Returns "minimal" (fastest valid effort) for reasoning models (gpt-5*, o1*,
+    o3*), or None for non-reasoning models (parameter omitted entirely).
+    """
+    return "minimal" if _is_reasoning_model(model) else None
+
 class OpenAIClient:
     """
     Client for interacting with OpenAI's APIs with retry logic and error handling.
@@ -75,19 +83,32 @@ class OpenAIClient:
         """
         Initialize client with API key and logger.
 
+        The underlying OpenAI SDK client is created lazily on first use, so an
+        OpenAIClient can be constructed without an OPENAI_API_KEY present (e.g. as
+        the default dependency of a processor configured for a non-OpenAI model).
+        The key is only required when an actual OpenAI call is made.
+
         Args:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY environment variable)
             logger: Logger instance for output logging
-
-        Raises:
-            ValueError: If no API key is provided and none is found in environment
         """
         self.api_key = api_key or os.environ.get('OPENAI_API_KEY')
-        if not self.api_key:
-            raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass as parameter.")
-
         self.logger = logger or get_logger(__name__)
-        self.client = openai.OpenAI(api_key=self.api_key)
+        self._client: openai.OpenAI | None = None
+
+    @property
+    def client(self) -> openai.OpenAI:
+        """
+        Lazily-constructed OpenAI SDK client.
+
+        Raises:
+            ValueError: If no API key was provided and none is found in environment.
+        """
+        if self._client is None:
+            if not self.api_key:
+                raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass as parameter.")
+            self._client = openai.OpenAI(api_key=self.api_key)
+        return self._client
 
         # Configure OpenAI client's HTTP logger to use DEBUG level instead of INFO
         # Try multiple possible logger names used by different OpenAI library versions
@@ -191,7 +212,7 @@ class OpenAIClient:
                 response_format=response_format
             )
             
-            self.logger.debug(f"HTTP Request: POST https://api.openai.com/v1/audio/transcriptions \"HTTP/1.1 200 OK\"")
+            self.logger.debug("HTTP Request: POST https://api.openai.com/v1/audio/transcriptions \"HTTP/1.1 200 OK\"")
             return transcription
         except Exception as e:
             self.logger.error(f"Error in transcription API call: {str(e)}")
@@ -222,7 +243,7 @@ class OpenAIClient:
             model: Model to use (e.g., "gpt-4o", "gpt-5", "gpt-5-mini")
             temperature: Temperature for generation (ignored for GPT-5/reasoning models)
             max_tokens: Maximum tokens to generate (max_completion_tokens for GPT-5)
-            reasoning_effort: Reasoning effort for GPT-5 models ("minimal", "low", "medium", "high")
+            reasoning_effort: Reasoning effort for reasoning models ("minimal", "low", "medium", "high")
             verbosity: Verbosity for GPT-5 models ("low", "medium", "high")
 
         Returns:
@@ -266,7 +287,7 @@ class OpenAIClient:
         try:
             response = self.client.chat.completions.create(**api_params)
 
-            self.logger.debug(f"HTTP Request: POST https://api.openai.com/v1/chat/completions \"HTTP/1.1 200 OK\"")
+            self.logger.debug("HTTP Request: POST https://api.openai.com/v1/chat/completions \"HTTP/1.1 200 OK\"")
 
             if not response.choices or not response.choices[0].message.content.strip():
                 # Empty responses can happen with reasoning models (GPT-5, o1, o3)
@@ -337,7 +358,7 @@ def call_llm(user_prompt: str, system_prompt: str | None = None, model: str = DE
         model: Model to use for completion (defaults to "gpt-4o")
         temperature: Temperature for generation (defaults to 0.1, ignored for GPT-5/reasoning models)
         max_tokens: Maximum tokens to generate (defaults to None for model default)
-        reasoning_effort: Reasoning effort for GPT-5 models ("minimal", "low", "medium", "high")
+        reasoning_effort: Reasoning effort for reasoning models ("minimal", "low", "medium", "high")
         verbosity: Verbosity for GPT-5 models ("low", "medium", "high")
         provider: Optional explicit provider override (openai, anthropic, gemini, ollama)
 

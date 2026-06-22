@@ -3,9 +3,9 @@
 Tests for transcript processing functionality.
 """
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-from transcribe_pkg.core.processor import TranscriptProcessor, process_transcript
+from transcribe_pkg.core.processor import TranscriptProcessor
 from transcribe_pkg.utils.text_utils import create_sentences, create_paragraphs
 from transcribe_pkg.constants import DEFAULT_LLM_MODEL, DEFAULT_SUMMARY_MODEL
 
@@ -267,6 +267,61 @@ class TestTranscriptProcessorIntegration(unittest.TestCase):
     call_args = mock_call_llm.call_args
     self.assertEqual(call_args[1]["user_prompt"], "Simple text.")
     self.assertEqual(call_args[1]["model"], DEFAULT_LLM_MODEL)
+
+
+class TestCacheKeyStability(unittest.TestCase):
+  """Cache keys must be deterministic across processes and include every output-affecting param."""
+
+  def test_stable_hash_is_deterministic_across_processes(self):
+    """_stable_hash must return the same value in separate interpreters (no builtin hash())."""
+    import subprocess
+    import sys
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    code = (
+      "from transcribe_pkg.core.processor import _stable_hash; "
+      "print('KEY=' + _stable_hash('sample text', 'claude-haiku-4-5'))"
+    )
+    keys = []
+    for _ in range(2):
+      r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(root))
+      self.assertEqual(r.returncode, 0, msg=r.stderr)
+      line = next((ln for ln in r.stdout.splitlines() if ln.startswith("KEY=")), None)
+      self.assertIsNotNone(line, msg=f"no KEY= line in stdout: {r.stdout!r}")
+      keys.append(line[4:])
+    self.assertEqual(keys[0], keys[1])  # stable across separate processes
+    self.assertEqual(len(keys[0]), 64)  # sha256 hexdigest, not a builtin-hash int
+
+  def test_chunk_cache_key_includes_all_output_affecting_params(self):
+    """Changing provider, max_tokens, or prompt identity must change the chunk cache key."""
+    from transcribe_pkg.core.processor import _chunk_cache_key
+    base = _chunk_cache_key("chunk", "ctx", "en", "claude-sonnet-4-5", 0.1, 4096, "anthropic", "standard")
+    # Identical inputs -> identical key
+    self.assertEqual(
+      base,
+      _chunk_cache_key("chunk", "ctx", "en", "claude-sonnet-4-5", 0.1, 4096, "anthropic", "standard"),
+    )
+    # Each output-affecting param must change the key
+    self.assertNotEqual(
+      base,
+      _chunk_cache_key("chunk", "ctx", "en", "claude-sonnet-4-5", 0.1, 4096, "openai", "standard"),
+    )
+    self.assertNotEqual(
+      base,
+      _chunk_cache_key("chunk", "ctx", "en", "claude-sonnet-4-5", 0.1, 2048, "anthropic", "standard"),
+    )
+    self.assertNotEqual(
+      base,
+      _chunk_cache_key("chunk", "ctx", "en", "claude-sonnet-4-5", 0.1, 4096, "anthropic", "specialized-xyz"),
+    )
+
+  def test_language_cache_key_depends_on_model(self):
+    """Language-detection key must depend on the detection model."""
+    from transcribe_pkg.core.processor import _language_cache_key
+    self.assertNotEqual(
+      _language_cache_key("hello world", "claude-haiku-4-5"),
+      _language_cache_key("hello world", "gpt-4o"),
+    )
 
 
 if __name__ == "__main__":

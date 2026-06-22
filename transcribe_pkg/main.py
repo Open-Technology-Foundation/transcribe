@@ -7,7 +7,6 @@ in setup.py, including the main transcription tool and related utilities.
 """
 import sys
 import signal
-import logging
 
 # Setup signal handler for clean exit
 def signal_handler(sig, frame):

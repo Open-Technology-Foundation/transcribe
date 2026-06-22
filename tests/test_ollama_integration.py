@@ -9,7 +9,6 @@ These tests require:
 Run with: python -m pytest tests/test_ollama_integration.py -v
 Skip with: python -m pytest tests/ --ignore=tests/test_ollama_integration.py
 """
-import os
 import unittest
 from pathlib import Path
 
