@@ -12,9 +12,7 @@ __all__ = [
     "TranscriptProcessor",
     "process_transcript",
     "ContentAnalyzer",
-    "ContentAwareProcessor",
     "ParallelProcessor",
-    "ChunkCombiner",
 ]
 
 #fin

@@ -6,6 +6,37 @@ Scope: 7,205 source lines across 31 modules; 3,374 test lines across 16 test fil
 
 ---
 
+## ✓ Resolution Status — updated 2026-06-23
+
+**Every finding in this report has been resolved.** The **Health Score: 4/10** and all
+severity text below are preserved as the original 2026-06-22 audit snapshot (the
+*pre-remediation* state) and are intentionally left unrewritten.
+
+Fixes landed on `main` across these commits:
+
+| Commit | What it fixed |
+|--------|---------------|
+| `68b3a74` | High quick-wins — lazy `OpenAIClient` (Claude usable without `OPENAI_API_KEY`), drop `max_workers` from `Transcriber()`, stable SHA-256 cache keys, revert `reasoning_effort` to `"minimal"`; ruff `--fix` sweep |
+| `e1fa534` | Both **Critical** findings — `text.find()` newline corruption and parallel chunk-overlap duplication |
+| `0d43e1c` | Dead-code removal — `ChunkProcessor`, `DEFAULT_CHUNK_OVERLAP` |
+| `88cb7d7` | **All remaining findings** (5 High, ~12 Medium, ~31 Low + lint), each with a regression test (6 new test files added) |
+
+Follow-up housekeeping: pruned phantom `__all__` entries (`ContentAwareProcessor`,
+`ChunkCombiner`) from `core/__init__.py` and the stale `cached` entry from
+`utils/__init__.py`.
+
+Two resolutions worth noting (judgment calls, not literal applications of the suggested fix):
+- **Specialized prompt templates** — resolved by *pruning* the undefined `speech_*`/`lecture_*`/`*_summary` template references (option b) so the code states the truth, not by adding six new prompt templates (a feature, out of scope).
+- **Per-index timestamp offset** — both timestamp findings collapsed into one fix: a fixed `i * chunk_length` offset, which is provably exact because every non-final chunk is exactly `chunk_length_ms`.
+
+**Verification at `88cb7d7`:** 250/250 unit tests pass (`.venv/bin/python -m pytest`,
+excluding the two live-service suites); `ruff check .` clean. The
+`test_ollama_integration` / `test_audio_integration` suites require a live Ollama with
+standard models and `ANTHROPIC_API_KEY`; their in-sandbox failures are environmental,
+not regressions.
+
+---
+
 ## Executive Summary
 
 **Health Score: 4/10**
