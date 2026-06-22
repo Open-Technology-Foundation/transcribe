@@ -22,7 +22,6 @@ from transcribe_pkg.constants import (
   # Text processing
   DEFAULT_MAX_CHUNK_SIZE,
   MIN_CHUNK_SIZE,
-  DEFAULT_CHUNK_OVERLAP,
   # Audio processing
   DEFAULT_CHUNK_LENGTH_MS,
   MAX_AUDIO_FILE_SIZE,
@@ -113,11 +112,6 @@ class TestTextProcessingConstants(unittest.TestCase):
     self.assertGreater(DEFAULT_MAX_CHUNK_SIZE, 0)
     self.assertGreater(MIN_CHUNK_SIZE, 0)
     self.assertGreater(DEFAULT_MAX_CHUNK_SIZE, MIN_CHUNK_SIZE)
-
-  def test_chunk_overlap_reasonable(self):
-    """Test chunk overlap is reasonable."""
-    self.assertGreater(DEFAULT_CHUNK_OVERLAP, 0)
-    self.assertLess(DEFAULT_CHUNK_OVERLAP, DEFAULT_MAX_CHUNK_SIZE)
 
 
 class TestAudioProcessingConstants(unittest.TestCase):

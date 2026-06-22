@@ -42,9 +42,6 @@ LANGUAGE_DETECTION_SAMPLE_SIZE = 1000
 DEFAULT_MAX_CHUNK_SIZE = 3000
 MIN_CHUNK_SIZE = 100
 
-# Overlap size between chunks to maintain context (characters)
-DEFAULT_CHUNK_OVERLAP = 200
-
 # Maximum sentence length in bytes for text splitting
 # Helps prevent overly long sentences that break formatting
 DEFAULT_MAX_SENTENCE_LENGTH = 3000
@@ -160,7 +157,6 @@ __all__ = [
   "LANGUAGE_DETECTION_SAMPLE_SIZE",
   "DEFAULT_MAX_CHUNK_SIZE",
   "MIN_CHUNK_SIZE",
-  "DEFAULT_CHUNK_OVERLAP",
   "DEFAULT_MAX_SENTENCE_LENGTH",
   "DEFAULT_MIN_SENTENCES_PER_PARAGRAPH",
   "DEFAULT_MAX_SENTENCES_PER_PARAGRAPH",
