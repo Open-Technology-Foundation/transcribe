@@ -53,7 +53,8 @@ class TestTranscriptProcessor(unittest.TestCase):
     text = "This is a test. This is another test. This is a third test."
     chunk, remaining = processor._get_chunk_with_complete_sentences(text, 25)
     self.assertEqual(chunk, "This is a test.")
-    self.assertEqual(remaining, " This is another test. This is a third test.")
+    # Remainder is the space-joined unconsumed sentences (no stray leading space)
+    self.assertEqual(remaining, "This is another test. This is a third test.")
 
     # Test with empty text
     chunk, remaining = processor._get_chunk_with_complete_sentences("", 1000)
@@ -76,6 +77,44 @@ class TestTranscriptProcessor(unittest.TestCase):
     # Should get complete sentences within size limit
     self.assertGreater(len(chunk), 0)
     self.assertTrue(chunk.endswith(".") or chunk.endswith("?") or chunk.endswith("!"))
+
+  def test_get_chunk_handles_newlines_without_corruption(self):
+    """A chunk spanning a newline must not corrupt the remainder.
+
+    create_sentences() normalizes newlines to spaces, so locating the chunk via
+    text.find() returned -1 when a chunk spanned a newline; the remainder then
+    became a garbage tail and the sequential loop spun on it.
+    """
+    processor = TranscriptProcessor()
+    text = "First sentence here.\nSecond sentence here. Third one."
+    # max_chunk_size 45 -> the chunk holds the first two sentences (which the
+    # original separates with a newline); the remainder is the third sentence.
+    chunk, remaining = processor._get_chunk_with_complete_sentences(text, 45)
+    self.assertEqual(chunk, "First sentence here. Second sentence here.")
+    self.assertEqual(remaining, "Third one.")
+
+  @patch("transcribe_pkg.core.processor.call_llm")
+  def test_parallel_processing_does_not_duplicate_sentences(self, mock_call_llm):
+    """Parallel post-processing must not duplicate overlapping sentences.
+
+    Chunks were split with a 500-byte overlap (to attempt context preservation),
+    but the reassembler joined them verbatim, so every overlapping sentence
+    appeared twice in the output.
+    """
+    # Echo each chunk unchanged so the output is exactly the reassembled chunks.
+    mock_call_llm.side_effect = lambda **kwargs: kwargs["user_prompt"]
+    processor = TranscriptProcessor(
+      max_chunk_size=200, content_aware=False, cache_enabled=False
+    )
+    sentences = [f"Sentence number {i} is unique and distinct." for i in range(15)]
+    text = " ".join(sentences)
+    result = processor.process(
+      text, use_parallel=True, content_analysis=False, language="en"
+    )
+    for i in range(15):
+      marker = f"Sentence number {i} is unique"
+      count = result.count(marker)
+      self.assertEqual(count, 1, f"sentence {i} appears {count}x (overlap duplication)")
 
   @patch("transcribe_pkg.core.processor.call_llm")
   def test_process_chunk(self, mock_call_llm):

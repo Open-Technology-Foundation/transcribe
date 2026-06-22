@@ -154,7 +154,11 @@ class TranscriptProcessor:
             max_workers=max_workers,
             use_processes=False,  # Use threads for better memory sharing
             chunk_size=max_chunk_size,
-            overlap=500,  # Overlap between chunks to maintain context
+            # No overlap: chunks are cleaned independently and reassembled
+            # verbatim, so any overlap region would be emitted twice (the
+            # reassembler has no dedup, and cross-chunk context is not threaded
+            # through the parallel path anyway).
+            overlap=0,
             logger=self.logger
         )
         
@@ -567,12 +571,14 @@ class TranscriptProcessor:
         """
         sentences = create_sentences(text, max_sentence_length=max_chunk_size-1)
         chunk = ''
-        
+        consumed = 0
+
         for sentence in sentences:
             proposed_chunk = chunk + sentence.strip() + ' '
-            
+
             if len(proposed_chunk.encode('utf-8')) <= max_chunk_size:
                 chunk = proposed_chunk
+                consumed += 1
             else:
                 # If we already have some content, stop here
                 if chunk:
@@ -581,14 +587,18 @@ class TranscriptProcessor:
                 self.logger.warning(f"Sentence exceeds max_chunk_size and will be truncated: {sentence[:50]}...")
                 # Take as much as we can (should be handled better by create_sentences)
                 chunk = sentence[:max_chunk_size]
+                consumed += 1
                 break
-        
-        # Find the remaining text after the chunk
-        # First get the chunk without trailing space for accurate position calculation
+
+        # Build the remainder from the sentences we did NOT consume. Do not locate
+        # the chunk with text.find(): create_sentences() normalizes newlines to
+        # spaces, so a chunk spanning a newline is absent from the original text,
+        # find() returns -1, and the remainder silently corrupts (the sequential
+        # loop then spins on the garbage). Consuming by sentence position
+        # guarantees an intact remainder and forward progress.
         clean_chunk = chunk.strip()
-        chunk_position = text.find(clean_chunk) + len(clean_chunk)
-        remaining_text = text[chunk_position:] if chunk_position < len(text) else ''
-        
+        remaining_text = ' '.join(sentences[consumed:])
+
         return clean_chunk, remaining_text
 
 def process_transcript(
