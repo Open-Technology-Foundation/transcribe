@@ -167,11 +167,14 @@ class Transcriber:
         """
         context_prompt = prompt[-896:] if prompt else ""  # Limit context prompt size
         transcripts = []
-        
-        # For timestamp mode, track the total duration and segments
-        total_duration = 0
+
+        # For timestamp mode, collect globally-positioned segments
         all_segments = []
-        
+
+        # Track chunks that produced no usable transcript so we can warn in
+        # aggregate once all chunks are processed.
+        failed_chunks = 0
+
         # Process each chunk with a progress bar
         for chunk_index, chunk_path in enumerate(tqdm(
             chunk_paths, 
@@ -192,12 +195,19 @@ class Transcriber:
                     temperature=self.temperature
                 )
                 
+                # Fixed global offset for this chunk's position on the timeline.
+                # Derived from the chunk index and the (fixed) chunk length so
+                # the offset is independent of where speech stops in a chunk and
+                # is unaffected by empty/failed chunks that skip ahead.
+                chunk_offset = chunk_index * (self.chunk_length_ms / 1000.0)
+
                 if with_timestamps:
                     # Handle empty results
                     if not transcription:
                         self.logger.warning(f"Empty transcript for chunk {chunk_index}. Skipping.")
+                        failed_chunks += 1
                         continue
-                    
+
                     # Extract text based on response type (object or dictionary)
                     if hasattr(transcription, 'text'):
                         transcript_text = transcription.text
@@ -205,13 +215,15 @@ class Transcriber:
                         transcript_text = transcription['text']
                     else:
                         self.logger.warning(f"Unexpected response format for chunk {chunk_index}. Skipping.")
+                        failed_chunks += 1
                         continue
-                    
+
                     # Skip if text is empty
                     if not transcript_text:
                         self.logger.warning(f"Empty transcript text for chunk {chunk_index}. Skipping.")
+                        failed_chunks += 1
                         continue
-                    
+
                     # Get segments based on response type
                     if hasattr(transcription, 'segments'):
                         segments = transcription.segments
@@ -220,7 +232,7 @@ class Transcriber:
                     else:
                         segments = []
                         self.logger.warning(f"No segments found for chunk {chunk_index}")
-                    
+
                     # Adjust segment timestamps for this chunk's position and convert to dict
                     for segment in segments:
                         # Determine if we're dealing with an object or dictionary
@@ -228,70 +240,72 @@ class Transcriber:
                             # Object response style
                             segment_dict = {
                                 "id": segment.id if hasattr(segment, 'id') else 0,
-                                "start": segment.start + total_duration if hasattr(segment, 'start') else 0 + total_duration,
-                                "end": segment.end + total_duration if hasattr(segment, 'end') else 0 + total_duration,
+                                "start": segment.start + chunk_offset if hasattr(segment, 'start') else 0 + chunk_offset,
+                                "end": segment.end + chunk_offset if hasattr(segment, 'end') else 0 + chunk_offset,
                                 "text": segment.text if hasattr(segment, 'text') else "",
                                 "words": []
                             }
-                            
+
                             # Extract word-level timestamps if available
                             if hasattr(segment, "words"):
                                 for word in segment.words:
                                     segment_dict["words"].append({
                                         "word": word.word if hasattr(word, 'word') else "",
-                                        "start": word.start + total_duration if hasattr(word, 'start') else 0 + total_duration,
-                                        "end": word.end + total_duration if hasattr(word, 'end') else 0 + total_duration
+                                        "start": word.start + chunk_offset if hasattr(word, 'start') else 0 + chunk_offset,
+                                        "end": word.end + chunk_offset if hasattr(word, 'end') else 0 + chunk_offset
                                     })
                         else:
                             # Dictionary response style
                             segment_dict = {
                                 "id": segment.get("id", 0),
-                                "start": segment.get("start", 0) + total_duration,
-                                "end": segment.get("end", 0) + total_duration,
+                                "start": segment.get("start", 0) + chunk_offset,
+                                "end": segment.get("end", 0) + chunk_offset,
                                 "text": segment.get("text", ""),
                                 "words": []
                             }
-                            
+
                             # Extract word-level timestamps if available
                             for word in segment.get("words", []):
                                 segment_dict["words"].append({
                                     "word": word.get("word", ""),
-                                    "start": word.get("start", 0) + total_duration,
-                                    "end": word.get("end", 0) + total_duration
+                                    "start": word.get("start", 0) + chunk_offset,
+                                    "end": word.get("end", 0) + chunk_offset
                                 })
-                                
+
                         all_segments.append(segment_dict)
-                    
+
                     # Add text to results
                     transcripts.append(transcript_text)
-                    
+
                     # Update context prompt with the transcribed text
                     context_prompt = f"{prompt}\n{transcript_text}"[-896:]
-                    
-                    # Update total duration for the next chunk
-                    if segments:
-                        # Get end timestamp from last segment
-                        if hasattr(segments[-1], 'end'):
-                            chunk_duration = segments[-1].end
-                        else:
-                            chunk_duration = segments[-1].get("end", 0)
-                        total_duration += chunk_duration
                 else:
                     # Text-only mode
                     # Handle empty results
                     if not transcription:
                         self.logger.warning(f"Empty transcript for chunk {chunk_index}. Skipping.")
                         transcription = ""
-                    
+                        failed_chunks += 1
+
                     transcripts.append(transcription)
-                    
+
                     # Update context prompt with the transcribed text
                     context_prompt = f"{prompt}\n{transcription}"[-896:]
-                
+
             except Exception as e:
                 self.logger.error(f"Error in transcription for chunk {chunk_index}: {str(e)}")
                 transcripts.append("")
-        
+                failed_chunks += 1
+
+        # Surface an aggregate signal if any chunk failed to transcribe, since
+        # failed chunks are silently replaced with empty text and can drop large
+        # spans of audio (one chunk can be ~10 minutes).
+        if failed_chunks > 0:
+            self.logger.warning(
+                f"{failed_chunks}/{len(chunk_paths)} chunks failed transcription; "
+                "transcript may be incomplete"
+            )
+
         # Return appropriate result format
         if with_timestamps:
             return {
@@ -326,10 +340,14 @@ class Transcriber:
         
         # Prepare results containers
         results = [None] * len(chunk_paths)
-        
+
         # For timestamp mode
         all_segments = []
-        
+
+        # Track chunks that produced no usable transcript so we can warn in
+        # aggregate once all chunks are processed.
+        failed_chunks = 0
+
         # Submit transcription tasks to thread pool
         with ThreadPoolExecutor(max_workers=workers) as executor:
             # Submit all transcription tasks
@@ -372,13 +390,19 @@ class Transcriber:
             # We need to post-process to adjust the segment timestamps
             # This requires sequential processing to ensure proper ordering
             transcript_texts = []
-            total_duration = 0
-            
+
             for i, result in enumerate(results):
+                # Fixed global offset for this chunk's position on the timeline.
+                # Derived from the chunk index and the (fixed) chunk length so
+                # the offset is independent of where speech stops in a chunk and
+                # is unaffected by empty/failed chunks.
+                chunk_offset = i * (self.chunk_length_ms / 1000.0)
+
                 if not result:
                     self.logger.warning(f"Empty transcript for chunk {i}. Skipping.")
+                    failed_chunks += 1
                     continue
-                
+
                 # Extract text based on response type (object or dictionary)
                 if hasattr(result, 'text'):
                     transcript_text = result.text
@@ -386,15 +410,17 @@ class Transcriber:
                     transcript_text = result['text']
                 else:
                     self.logger.warning(f"Unexpected response format for chunk {i}. Skipping.")
+                    failed_chunks += 1
                     continue
-                
+
                 # Skip if text is empty
                 if not transcript_text:
                     self.logger.warning(f"Empty transcript text for chunk {i}. Skipping.")
+                    failed_chunks += 1
                     continue
-                
+
                 transcript_texts.append(transcript_text)
-                
+
                 # Get segments based on response type
                 if hasattr(result, 'segments'):
                     segments = result.segments
@@ -403,7 +429,7 @@ class Transcriber:
                 else:
                     segments = []
                     self.logger.warning(f"No segments found for chunk {i}")
-                
+
                 # Adjust segment timestamps for this chunk's position and convert to dict
                 for segment in segments:
                     # Determine if we're dealing with an object or dictionary
@@ -411,55 +437,59 @@ class Transcriber:
                         # Object response style
                         segment_dict = {
                             "id": segment.id if hasattr(segment, 'id') else 0,
-                            "start": segment.start + total_duration if hasattr(segment, 'start') else 0 + total_duration,
-                            "end": segment.end + total_duration if hasattr(segment, 'end') else 0 + total_duration,
+                            "start": segment.start + chunk_offset if hasattr(segment, 'start') else 0 + chunk_offset,
+                            "end": segment.end + chunk_offset if hasattr(segment, 'end') else 0 + chunk_offset,
                             "text": segment.text if hasattr(segment, 'text') else "",
                             "words": []
                         }
-                        
+
                         # Extract word-level timestamps if available
                         if hasattr(segment, "words"):
                             for word in segment.words:
                                 segment_dict["words"].append({
                                     "word": word.word if hasattr(word, 'word') else "",
-                                    "start": word.start + total_duration if hasattr(word, 'start') else 0 + total_duration,
-                                    "end": word.end + total_duration if hasattr(word, 'end') else 0 + total_duration
+                                    "start": word.start + chunk_offset if hasattr(word, 'start') else 0 + chunk_offset,
+                                    "end": word.end + chunk_offset if hasattr(word, 'end') else 0 + chunk_offset
                                 })
                     else:
                         # Dictionary response style
                         segment_dict = {
                             "id": segment.get("id", 0),
-                            "start": segment.get("start", 0) + total_duration,
-                            "end": segment.get("end", 0) + total_duration,
+                            "start": segment.get("start", 0) + chunk_offset,
+                            "end": segment.get("end", 0) + chunk_offset,
                             "text": segment.get("text", ""),
                             "words": []
                         }
-                        
+
                         # Extract word-level timestamps if available
                         for word in segment.get("words", []):
                             segment_dict["words"].append({
                                 "word": word.get("word", ""),
-                                "start": word.get("start", 0) + total_duration,
-                                "end": word.get("end", 0) + total_duration
+                                "start": word.get("start", 0) + chunk_offset,
+                                "end": word.get("end", 0) + chunk_offset
                             })
-                            
+
                     all_segments.append(segment_dict)
-                
-                # Update total duration for the next chunk
-                if segments:
-                    # Get end timestamp from last segment
-                    if hasattr(segments[-1], 'end'):
-                        chunk_duration = segments[-1].end
-                    else:
-                        chunk_duration = segments[-1].get("end", 0)
-                    total_duration += chunk_duration
-            
+
+            if failed_chunks > 0:
+                self.logger.warning(
+                    f"{failed_chunks}/{len(chunk_paths)} chunks failed transcription; "
+                    "transcript may be incomplete"
+                )
+
             return {
                 "text": " ".join(transcript_texts),
                 "segments": all_segments
             }
         else:
-            # For text-only output, just return the list of texts
+            # For text-only output, just return the list of texts. A falsy
+            # result means the chunk's worker failed (or returned nothing).
+            failed_chunks = sum(1 for r in results if not r)
+            if failed_chunks > 0:
+                self.logger.warning(
+                    f"{failed_chunks}/{len(chunk_paths)} chunks failed transcription; "
+                    "transcript may be incomplete"
+                )
             return [r if r else "" for r in results]
 
 def transcribe_audio_file(

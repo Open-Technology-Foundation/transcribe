@@ -184,8 +184,14 @@ class TranscriptProcessor:
             Processed and improved transcript text
         """
         text = text.rstrip()
+
+        # Empty/whitespace-only input must not issue any (paid) LLM calls.
+        if not text.strip():
+            self.logger.info("Empty transcript; nothing to process")
+            return ""
+
         total_length = len(text)
-        
+
         self.logger.info(f"Processing transcript of {total_length} bytes")
         self.logger.info(f"Using context: {context if context else 'None'}")
         self.logger.info(f"Using language: {language if language else 'Auto-detect'}")
@@ -214,25 +220,16 @@ class TranscriptProcessor:
         if use_parallel:
             self.logger.info(f"Using parallel processing with {self.parallel_processor.max_workers} workers")
             
-            # For very small texts, parallel processing might not be efficient
-            # But if user explicitly requested it, we'll honor that request
+            # For very small texts, parallel processing buys nothing and a naive
+            # char-index split would cut a sentence in half. Text that fits in a
+            # single chunk is processed in one clean call regardless of the
+            # use_parallel request.
             if total_length <= self.max_chunk_size:
-                self.logger.info("Text is small, but using parallel processing as requested")
-                # Split the text into at least 2 chunks for parallel processing
-                # Create an artificial split point at around 40% of the text
-                split_point = max(1, int(total_length * 0.4))
-                chunks = [text[:split_point], text[split_point:]]
-                
-                # Process chunks in parallel
-                results = []
-                for i, chunk in enumerate(chunks):
-                    if content_analysis and self.content_aware:
-                        results.append(self._process_with_content_analysis(chunk, context, language))
-                    else:
-                        results.append(self._process_chunk(chunk, context, None, language))
-                
-                # Combine results
-                result = "\n\n".join(results)
+                self.logger.info("Text fits in a single chunk; processing in one call")
+                if content_analysis and self.content_aware:
+                    result = self._process_with_content_analysis(text, context, language)
+                else:
+                    result = self._process_chunk(text, context, None, language)
             else:
                 # For larger texts, use regular parallel processing
                 result = self._process_parallel(text, context, language, content_analysis)
@@ -357,8 +354,13 @@ class TranscriptProcessor:
                         
                     return result
                 except Exception as e:
-                    self.logger.error(f"Error processing chunk {chunk_index}: {str(e)}")
-                    return chunk  # Fallback to original text on error
+                    # Preserve content but make the degradation loud: this chunk
+                    # is emitted UNPROCESSED.
+                    self.logger.warning(
+                        f"Error processing chunk {chunk_index}; "
+                        f"falling back to unprocessed text: {str(e)}"
+                    )
+                    return chunk
             else:
                 # Use standard processing
                 result = self._process_chunk(chunk, chunk_context, prev_context, language)
@@ -377,6 +379,9 @@ class TranscriptProcessor:
             combine_func=lambda chunks: "\n\n".join([c.strip() for c in chunks]),
             show_progress=True,
             context=context,
+            # Parallel mode deliberately trades cross-chunk context continuity
+            # for speed: chunks run concurrently, so no prior chunk's summary is
+            # available to thread forward (prev_context stays None throughout).
             prev_context=None
         )
         
@@ -454,8 +459,11 @@ class TranscriptProcessor:
                     chunk, context, context_summary, language
                 )
             
-            # Add the processed chunk to the generated text
-            if generated_text and generated_text[-1] in '.,?!`"':
+            # Add the processed chunk to the generated text. Insert a separating
+            # space whenever the running text does not already end in whitespace,
+            # otherwise chunks ending in a letter/digit/`)`/`:`/`'` would fuse
+            # with the next chunk ("...oneAnd here...").
+            if generated_text and not generated_text.endswith((" ", "\n")):
                 generated_text += ' '
             generated_text += processed_chunk
             
@@ -549,11 +557,16 @@ class TranscriptProcessor:
             return response
             
         except APIError as e:
-            self.logger.error(f"API error processing chunk: {str(e)}")
-            # Return original chunk on error, to ensure we don't lose content
+            # Preserve content by falling back to the raw chunk, but make the
+            # degradation loud: this chunk is emitted UNPROCESSED.
+            self.logger.warning(
+                f"API error processing chunk; falling back to unprocessed text: {str(e)}"
+            )
             return chunk
         except Exception as e:
-            self.logger.error(f"Unexpected error processing chunk: {str(e)}")
+            self.logger.warning(
+                f"Unexpected error processing chunk; falling back to unprocessed text: {str(e)}"
+            )
             return chunk
     
     # Method is replaced by prompt_manager.generate_summary
@@ -661,10 +674,6 @@ def _generate_text_with_continuation(
     Raises:
         APIError: For API-related errors
     """
-    from transcribe_pkg.utils.api_utils import get_openai_client
-    
-    client = get_openai_client()
-    
     # Build prompt
     system_prompt = f"Continue the following text naturally. Context: {context}" if context else "Continue the following text naturally."
     

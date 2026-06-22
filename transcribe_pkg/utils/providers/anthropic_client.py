@@ -49,9 +49,9 @@ class AnthropicClient(LLMClientProtocol):
     if system_prompt:
       create_kwargs["system"] = system_prompt
 
-    # Anthropic requires temperature in specific range
-    if temperature > 0:
-      create_kwargs["temperature"] = min(temperature, 1.0)
+    # Anthropic requires temperature in [0.0, 1.0]; 0.0 is valid (deterministic)
+    # and must be forwarded explicitly, otherwise the server defaults to 1.0.
+    create_kwargs["temperature"] = max(0.0, min(temperature, 1.0))
 
     response = self._client.messages.create(**create_kwargs)
 

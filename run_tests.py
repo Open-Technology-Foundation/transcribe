@@ -41,7 +41,7 @@ def run_tests(test_pattern=None, coverage_report=False):
         cov.save()
         cov.report()
         cov.html_report(directory='coverage_html')
-        print(f"HTML coverage report generated in 'coverage_html' directory")
+        print("HTML coverage report generated in 'coverage_html' directory")
     
     return 0 if result.wasSuccessful() else 1
 

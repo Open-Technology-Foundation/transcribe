@@ -285,6 +285,123 @@ class TestCudaPathSetup:
     # Should not raise even if no nvidia libs found
     client._setup_cuda_paths()
 
+  def test_setup_cuda_paths_loads_libs_via_ctypes(self, tmp_path, monkeypatch):
+    """Discovered cublas/cudnn .so files are dlopen'd with RTLD_GLOBAL.
+
+    LD_LIBRARY_PATH mutation after process start is not honored by the
+    loader; the libraries must be loaded explicitly via ctypes so the
+    symbols are available to ctranslate2.
+    """
+    # Build a fake site-packages tree with nvidia cublas/cudnn .so files.
+    site_packages = tmp_path / "site-packages"
+    cublas_dir = site_packages / "nvidia" / "cublas" / "lib"
+    cudnn_dir = site_packages / "nvidia" / "cudnn" / "lib"
+    cublas_dir.mkdir(parents=True)
+    cudnn_dir.mkdir(parents=True)
+    cublas_so = cublas_dir / "libcublas.so.12"
+    cudnn_so = cudnn_dir / "libcudnn.so.9"
+    cublas_so.write_bytes(b"")
+    cudnn_so.write_bytes(b"")
+
+    monkeypatch.setattr(
+      "transcribe_pkg.utils.local_whisper.sys.path",
+      [str(site_packages)],
+    )
+
+    loaded = []
+    fake_ctypes = MagicMock()
+    fake_ctypes.RTLD_GLOBAL = 256
+
+    def fake_cdll(path, mode=0):
+      loaded.append((path, mode))
+      return MagicMock()
+
+    fake_ctypes.CDLL.side_effect = fake_cdll
+
+    client = LocalWhisperClient()
+    with patch.dict("sys.modules", {"ctypes": fake_ctypes}):
+      client._setup_cuda_paths()
+
+    loaded_paths = [p for p, _ in loaded]
+    assert str(cublas_so) in loaded_paths
+    assert str(cudnn_so) in loaded_paths
+    # Must be loaded globally so dependent libs resolve the symbols.
+    for _, mode in loaded:
+      assert mode == fake_ctypes.RTLD_GLOBAL
+
+  def test_setup_cuda_paths_ctypes_failure_does_not_crash(self, tmp_path, monkeypatch):
+    """A failing/missing .so load is swallowed (best-effort)."""
+    site_packages = tmp_path / "site-packages"
+    cublas_dir = site_packages / "nvidia" / "cublas" / "lib"
+    cublas_dir.mkdir(parents=True)
+    (cublas_dir / "libcublas.so.12").write_bytes(b"")
+
+    monkeypatch.setattr(
+      "transcribe_pkg.utils.local_whisper.sys.path",
+      [str(site_packages)],
+    )
+
+    fake_ctypes = MagicMock()
+    fake_ctypes.RTLD_GLOBAL = 256
+    fake_ctypes.CDLL.side_effect = OSError("cannot open shared object file")
+
+    client = LocalWhisperClient()
+    with patch.dict("sys.modules", {"ctypes": fake_ctypes}):
+      # Should not raise despite the OSError from CDLL.
+      client._setup_cuda_paths()
+
+
+class TestGpuFallback:
+  """Tests for graceful CPU fallback when CUDA model load fails."""
+
+  @patch("transcribe_pkg.utils.local_whisper.LocalWhisperClient._setup_cuda_paths")
+  @patch("transcribe_pkg.utils.local_whisper.LocalWhisperClient._detect_device")
+  def test_auto_cuda_load_failure_falls_back_to_cpu(
+    self, mock_detect, mock_setup, monkeypatch,
+  ):
+    """When device=auto resolves to cuda but model load fails, fall back to CPU."""
+    mock_detect.return_value = ("cuda", "float16")
+
+    cpu_model = object()
+    calls = []
+
+    def fake_whisper_model(model_size, device, compute_type):
+      calls.append((device, compute_type))
+      if device == "cuda":
+        raise RuntimeError("Unable to load libcudnn_ops.so.9")
+      return cpu_model
+
+    fake_module = MagicMock()
+    fake_module.WhisperModel.side_effect = fake_whisper_model
+
+    client = LocalWhisperClient(model_size="small", device="auto")
+    with patch.dict("sys.modules", {"faster_whisper": fake_module}):
+      result = client._get_model()
+
+    assert result is cpu_model
+    # cuda attempted first, then cpu/int8 fallback.
+    assert calls[0] == ("cuda", "float16")
+    assert ("cpu", "int8") in calls
+
+  @patch("transcribe_pkg.utils.local_whisper.LocalWhisperClient._setup_cuda_paths")
+  @patch("transcribe_pkg.utils.local_whisper.LocalWhisperClient._detect_device")
+  def test_explicit_cuda_load_failure_reraises(
+    self, mock_detect, mock_setup,
+  ):
+    """When user explicitly requests device=cuda, a load failure must propagate."""
+    mock_detect.return_value = ("cuda", "float16")
+
+    def fake_whisper_model(model_size, device, compute_type):
+      raise RuntimeError("Unable to load libcudnn_ops.so.9")
+
+    fake_module = MagicMock()
+    fake_module.WhisperModel.side_effect = fake_whisper_model
+
+    client = LocalWhisperClient(model_size="small", device="cuda")
+    with patch.dict("sys.modules", {"faster_whisper": fake_module}):
+      with pytest.raises(RuntimeError, match="libcudnn"):
+        client._get_model()
+
 
 @pytest.mark.integration
 class TestIntegration:

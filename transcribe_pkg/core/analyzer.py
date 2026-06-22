@@ -6,12 +6,21 @@ This module provides advanced analysis and specialized processing of transcripts
 detecting content characteristics and applying appropriate strategies.
 """
 import logging
+import re
 from typing import Any
 
 from transcribe_pkg.utils.logging_utils import get_logger
 from transcribe_pkg.utils.api_utils import OpenAIClient, call_llm
 from transcribe_pkg.utils.prompts import PromptManager
-from transcribe_pkg.constants import DEFAULT_LLM_MODEL, DEFAULT_SUMMARY_MODEL
+from transcribe_pkg.constants import (
+    DEFAULT_LLM_MODEL,
+    DEFAULT_SUMMARY_MODEL,
+    DIALOGUE_THRESHOLD_RATIO,
+    LECTURE_THRESHOLD_COUNT,
+    MIN_WORDS_FOR_ANALYSIS,
+    SPEECH_THRESHOLD_COUNT,
+    TECHNICAL_THRESHOLD_RATIO,
+)
 
 class ContentAnalyzer:
     """
@@ -97,20 +106,16 @@ class ContentAnalyzer:
         # Use the prompt template appropriate for the content type
         content_type = analysis.get("content_type", "general")
         
-        # Set up template mapping for different purposes
+        # Set up template mapping for different purposes.
+        # Only reference templates that actually exist in PromptManager;
+        # unlisted content types (speech, lecture) fall back to "general".
         template_mapping = {
             "clean": {
                 "dialogue": "dialogue_cleaning",
                 "technical": "technical_cleaning",
-                "speech": "speech_cleaning",
-                "lecture": "lecture_cleaning",
                 "general": "transcript_processing"
             },
             "summarize": {
-                "dialogue": "dialogue_summary",
-                "technical": "technical_summary",
-                "speech": "speech_summary",
-                "lecture": "lecture_summary",
                 "general": "context_summary"
             }
         }
@@ -202,30 +207,39 @@ Respond with ONLY ONE WORD - the category name in lowercase (dialogue, technical
             self.logger.warning(f"Error detecting content type with API: {str(e)}")
         
         # Fall back to basic pattern detection
-        # Check for dialogue patterns
-        dialogue_markers = [":", '"', "'", "said", "asked", "replied"]
+        word_count = len(text.split())
+
+        # Short text lacks enough signal for the heuristic detector.
+        if word_count < MIN_WORDS_FOR_ANALYSIS:
+            return "general"
+
+        # Check for dialogue patterns. Use specific markers (not bare
+        # apostrophes/colons, which appear in ordinary prose contractions and
+        # punctuation) plus speaker labels at line start (e.g. "John:").
+        dialogue_markers = ['" ', " said ", " asked ", " replied "]
         dialogue_count = sum(text.count(marker) for marker in dialogue_markers)
-        
+        dialogue_count += len(re.findall(r"^\s*\w+\s*:", text, re.M))
+
         # Check for technical content
         technical_markers = ["Figure", "Table", "algorithm", "equation", "function"]
         technical_count = sum(text.count(marker) for marker in technical_markers)
-        
+
         # Check for speech patterns
         speech_markers = ["thank you", "ladies and gentlemen", "my fellow", "address", "speech"]
         speech_count = sum(text.count(marker) for marker in speech_markers)
-        
+
         # Check for lecture patterns
         lecture_markers = ["as we can see", "in this lecture", "let's examine", "concept", "theory"]
         lecture_count = sum(text.count(marker) for marker in lecture_markers)
-        
+
         # Determine content type based on markers
-        if dialogue_count > len(text.split()) / 20:
+        if dialogue_count > word_count * DIALOGUE_THRESHOLD_RATIO:
             return "dialogue"
-        elif technical_count > len(text.split()) / 100:
+        elif technical_count > word_count * TECHNICAL_THRESHOLD_RATIO:
             return "technical"
-        elif speech_count > 3:
+        elif speech_count > SPEECH_THRESHOLD_COUNT:
             return "speech"
-        elif lecture_count > 3:
+        elif lecture_count > LECTURE_THRESHOLD_COUNT:
             return "lecture"
         else:
             return "general"
@@ -267,11 +281,13 @@ Respond with ONLY ONE WORD - the category name in lowercase (dialogue, technical
         
         # Count occurrences of technical terms
         term_count = sum(text.lower().count(term) for term in technical_terms)
-        
+
         # Normalize by text length and cap at 1.0
         words = len(text.split())
+        if words == 0:
+            return 0.0
         score = min(1.0, term_count / (words * 0.05))
-        
+
         return score
     
     def _measure_dialogue_ratio(self, text: str) -> float:
@@ -338,7 +354,7 @@ Respond with ONLY ONE WORD - the category name in lowercase (dialogue, technical
         # Analyze structure
         structure = {
             "avg_paragraph_length": sum(len(p.split()) for p in paragraphs) / max(1, len(paragraphs)),
-            "avg_line_length": sum(len(l.split()) for l in lines) / max(1, len(lines)),
+            "avg_line_length": sum(len(line.split()) for line in lines) / max(1, len(lines)),
             "paragraph_count": len(paragraphs),
             "line_count": len(lines),
         }

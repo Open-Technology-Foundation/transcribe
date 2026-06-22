@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
-from transcribe_pkg.utils.config import Config
+from transcribe_pkg.utils.config import Config, DEFAULT_CONFIG
 
 class TestConfig(unittest.TestCase):
     """Tests for Config class."""
@@ -166,6 +166,42 @@ class TestConfig(unittest.TestCase):
         
         # Ensure original is unchanged (use the stored value for comparison)
         self.assertEqual(config.get('openai.models.completion'), original_value)
+
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'secret-leak-key'})
+    def test_does_not_mutate_module_defaults(self):
+        """Constructing Config must not mutate module-global DEFAULT_CONFIG."""
+        # Record the original default before constructing.
+        original_api_key = DEFAULT_CONFIG['openai']['api_key']
+
+        config = Config()
+
+        # The instance picks up the env value...
+        self.assertEqual(config.get('openai.api_key'), 'secret-leak-key')
+        # ...but the module-global defaults must remain untouched (no secret leak).
+        self.assertEqual(DEFAULT_CONFIG['openai']['api_key'], original_api_key)
+        self.assertEqual(DEFAULT_CONFIG['openai']['api_key'], '')
+
+    @patch.dict(os.environ, {'OPENAI_COMPLETION_MODEL': 'env-model'})
+    def test_file_overrides_env(self):
+        """Config file must take precedence over environment variables.
+
+        Documented priority: defaults < env < config-file < CLI.
+        """
+        file_only_config = {
+            'openai': {
+                'models': {
+                    'completion': 'file-model'
+                }
+            }
+        }
+        file_path = os.path.join(self.temp_dir.name, 'precedence_config.json')
+        with open(file_path, 'w') as f:
+            json.dump(file_only_config, f)
+
+        config = Config(file_path)
+
+        # The config file value wins over the environment variable.
+        self.assertEqual(config.get('openai.models.completion'), 'file-model')
 
 if __name__ == '__main__':
     unittest.main()

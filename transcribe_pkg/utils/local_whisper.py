@@ -91,6 +91,19 @@ class LocalWhisperClient:
         os.environ["LD_LIBRARY_PATH"] = new_paths
       self.logger.debug(f"Added CUDA paths: {new_paths}")
 
+      # LD_LIBRARY_PATH set after process start is not reliably honored by the
+      # glibc loader for the current process, so dlopen the discovered cublas/
+      # cudnn libraries explicitly (RTLD_GLOBAL) to expose their symbols to
+      # ctranslate2. Best-effort: never crash if a library is missing.
+      import ctypes
+
+      for lib_dir in nvidia_paths:
+        for so_file in sorted(Path(lib_dir).glob("*.so*")):
+          try:
+            ctypes.CDLL(str(so_file), mode=ctypes.RTLD_GLOBAL)
+          except OSError as e:
+            self.logger.debug(f"Could not preload {so_file}: {e}")
+
   def _get_model(self) -> "WhisperModel":
     """Lazy-load the Whisper model."""
     if self._model is not None:
@@ -104,11 +117,29 @@ class LocalWhisperClient:
     device, compute_type = self._detect_device()
     self.logger.debug(f"Loading model: {self.model_size} on {device} ({compute_type})")
 
-    self._model = WhisperModel(
-      self.model_size,
-      device=device,
-      compute_type=compute_type,
-    )
+    try:
+      self._model = WhisperModel(
+        self.model_size,
+        device=device,
+        compute_type=compute_type,
+      )
+    except RuntimeError as e:
+      # faster-whisper/ctranslate2 loads CUDA via cuDNN/cuBLAS, whose
+      # availability torch.cuda.is_available() does not guarantee. When the
+      # device was auto-detected, degrade gracefully to CPU; when the user
+      # explicitly requested cuda, surface the error.
+      if device == "cuda" and self.device == "auto":
+        self.logger.warning(
+          f"CUDA model load failed ({e}); falling back to CPU. "
+          "For faster local transcription, ensure cuDNN/cuBLAS are installed."
+        )
+        self._model = WhisperModel(
+          self.model_size,
+          device="cpu",
+          compute_type="int8",
+        )
+      else:
+        raise
     return self._model
 
   def _convert_to_openai_format(self, segments: list, info: Any) -> dict:

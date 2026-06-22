@@ -2,6 +2,9 @@
 """
 Tests for text utilities.
 """
+import os
+import subprocess
+import sys
 import unittest
 from transcribe_pkg.utils.text_utils import (
     create_sentences,
@@ -97,6 +100,53 @@ class TestTextUtils(unittest.TestCase):
         # Test with empty text
         chunks = split_text_for_processing("")
         self.assertEqual(chunks, [])
+
+class TestModuleEntryPoint(unittest.TestCase):
+    """Test the `python -m transcribe_pkg` entry point (__main__.py)."""
+
+    def test_main_module_installs_sigint_handler(self):
+        """
+        Importing transcribe_pkg.__main__ must install the SIGINT/Ctrl-C
+        handler defined in transcribe_pkg.main (which exits cleanly with 130).
+
+        Run in a fresh subprocess so module-import and signal state are clean
+        and deterministic regardless of test ordering. No network/LLM/audio is
+        touched: only package import side effects (logging + signal setup).
+        """
+        # Inspect the SIGINT handler after importing ONLY __main__, without
+        # importing transcribe_pkg.main first (which would itself install it).
+        probe = (
+            "import signal\n"
+            "import transcribe_pkg.__main__\n"
+            "h = signal.getsignal(signal.SIGINT)\n"
+            "print(getattr(h, '__module__', None), getattr(h, '__name__', None))\n"
+        )
+        env = dict(os.environ)
+        # Isolate cache so the test never pollutes the shared on-disk cache.
+        env["XDG_CACHE_HOME"] = self._tmp_cache()
+        result = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        self.assertEqual(
+            result.returncode, 0,
+            msg=f"probe subprocess failed:\nstdout={result.stdout}\nstderr={result.stderr}",
+        )
+        out = result.stdout.strip()
+        self.assertEqual(
+            out, "transcribe_pkg.main signal_handler",
+            msg=(
+                "python -m transcribe_pkg did not install main.signal_handler "
+                f"for SIGINT (got: {out!r}); Ctrl-C handling is bypassed."
+            ),
+        )
+
+    @staticmethod
+    def _tmp_cache():
+        import tempfile
+        return tempfile.mkdtemp()
 
 if __name__ == '__main__':
     unittest.main()

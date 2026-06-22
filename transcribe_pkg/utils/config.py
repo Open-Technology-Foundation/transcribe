@@ -5,8 +5,8 @@ Configuration management for the transcribe package.
 This module provides a centralized configuration system for the transcribe package,
 handling configuration from multiple sources with appropriate precedence:
 1. Command line arguments (highest priority)
-2. Environment variables
-3. Configuration files
+2. Configuration files
+3. Environment variables
 4. Default values (lowest priority)
 
 Key features:
@@ -22,6 +22,7 @@ validation of user-provided values.
 """
 
 import os
+import copy
 import json
 import logging
 import argparse
@@ -87,15 +88,18 @@ class Config:
     Args:
       config_file (str, optional): Path to configuration file. Defaults to None.
     """
-    self._config = DEFAULT_CONFIG.copy()
+    # Deep-copy the defaults so per-instance mutations never leak into the
+    # module-global DEFAULT_CONFIG (a shallow copy would share nested dicts).
+    self._config = copy.deepcopy(DEFAULT_CONFIG)
     self._config_file = config_file
-    
-    # Load configuration from file if provided
+
+    # Apply sources in ascending priority order (defaults < env < file).
+    # Environment variables first, then the config file overrides them.
+    self.load_from_env()
+
+    # Load configuration from file if provided (overrides env values)
     if config_file:
       self.load_from_file(config_file)
-    
-    # Load configuration from environment variables
-    self.load_from_env()
   
   def load_from_file(self, config_file: str) -> None:
     """

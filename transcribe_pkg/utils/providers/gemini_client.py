@@ -57,7 +57,15 @@ class GeminiClient(LLMClientProtocol):
       generation_config=generation_config,
     )
 
-    return response.text or ""
+    # A blocked/empty response has no valid candidates, and the .text accessor
+    # itself raises ValueError when there is no usable Part (safety block or
+    # finish_reason != STOP). Guard both so we return "" instead of crashing.
+    if not getattr(response, "candidates", None):
+      return ""
+    try:
+      return response.text or ""
+    except ValueError:
+      return ""
 
 
 #fin

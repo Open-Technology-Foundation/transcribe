@@ -207,7 +207,7 @@ def _save_raw_transcript(result: Any, output_path: str | None, parsed_args: argp
   raw_output = f"{output_path}.raw"
   logger.info(f"Saving raw transcript to {raw_output}")
   try:
-    with open(raw_output, "w") as f:
+    with open(raw_output, "w", encoding="utf-8") as f:
       f.write(raw_text)
   except Exception as e:
     logger.error(f"Error saving raw transcript: {str(e)}")
@@ -347,9 +347,23 @@ def _write_output(result: Any, output_path: str | None, use_stdout: bool,
     else:
       # Write text transcript
       logger.info(f"Writing transcript to {output_path}")
-      text_content = _extract_text_from_result(result)
 
-      with open(output_path, "w") as f:
+      # Mirror the stdout contract: when timestamps are requested (but no
+      # subtitle format) and per-segment data exists, write timestamped lines.
+      segments = result.get("segments", []) if isinstance(result, dict) else []
+      if with_timestamps and segments:
+        lines = []
+        for segment in segments:
+          start_time = segment.get("start", 0)
+          end_time = segment.get("end", 0)
+          text = segment.get("text", "").strip()
+          lines.append(f"[{start_time:.2f} -> {end_time:.2f}] {text}")
+        text_content = "\n".join(lines)
+      else:
+        # Fall back to plain text when there are no segments.
+        text_content = _extract_text_from_result(result)
+
+      with open(output_path, "w", encoding="utf-8") as f:
         f.write(text_content)
 
   return True
@@ -621,7 +635,19 @@ def clean_transcript_command(args: Sequence[str] | None = None) -> int:
     
     # Set up logging
     logger = setup_logging(parsed_args.verbose, parsed_args.debug)
-    
+
+    # Validate numeric arguments (this namespace lacks the worker/chunk-length
+    # fields that _validate_numeric_args expects, so validate inline).
+    if not 0.0 <= parsed_args.temperature <= 1.0:
+        logger.error(f"Invalid --temperature value: {parsed_args.temperature}. Must be between 0.0 and 1.0.")
+        return 1
+    if parsed_args.max_tokens < 1:
+        logger.error(f"Invalid --max-tokens value: {parsed_args.max_tokens}. Must be >= 1.")
+        return 1
+    if parsed_args.max_chunk_size <= 0:
+        logger.error(f"Invalid --max-chunk-size value: {parsed_args.max_chunk_size}. Must be > 0.")
+        return 1
+
     # Import here to avoid circular imports
     from transcribe_pkg.core.processor import TranscriptProcessor
     
@@ -629,12 +655,12 @@ def clean_transcript_command(args: Sequence[str] | None = None) -> int:
         # Read input file
         logger.info(f"Reading input file: {parsed_args.input_file}")
         try:
-            with open(parsed_args.input_file, 'r') as file:
+            with open(parsed_args.input_file, 'r', encoding='utf-8') as file:
                 input_text = file.read()
         except IOError as e:
             logger.error(f"Error reading input file: {str(e)}")
             return 1
-            
+
         # Create processor
         processor = TranscriptProcessor(
             model=parsed_args.model,
@@ -660,7 +686,7 @@ def clean_transcript_command(args: Sequence[str] | None = None) -> int:
         if parsed_args.output:
             logger.info(f"Writing output to file: {parsed_args.output}")
             try:
-                with open(parsed_args.output, 'w') as file:
+                with open(parsed_args.output, 'w', encoding='utf-8') as file:
                     file.write(generated_text)
             except IOError as e:
                 logger.error(f"Error writing to output file: {str(e)}")
@@ -725,12 +751,12 @@ def create_sentences_command(args: Sequence[str] | None = None) -> int:
         # Read input file
         logger.info(f"Reading input file: {parsed_args.input_file}")
         try:
-            with open(parsed_args.input_file, 'r') as file:
+            with open(parsed_args.input_file, 'r', encoding='utf-8') as file:
                 input_text = file.read()
         except IOError as e:
             logger.error(f"Error reading input file: {str(e)}")
             return 1
-        
+
         # Process the text
         if parsed_args.paragraphs:
             logger.info(f"Creating paragraphs with min_sentences={parsed_args.min_sentences}, "
@@ -753,7 +779,7 @@ def create_sentences_command(args: Sequence[str] | None = None) -> int:
         if parsed_args.output:
             logger.info(f"Writing output to file: {parsed_args.output}")
             try:
-                with open(parsed_args.output, 'w') as file:
+                with open(parsed_args.output, 'w', encoding='utf-8') as file:
                     file.write(output_text)
             except IOError as e:
                 logger.error(f"Error writing to output file: {str(e)}")

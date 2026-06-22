@@ -31,8 +31,13 @@ PREFIX_MAPPING: dict[str, str] = {
   "ollama/": PROVIDER_OLLAMA,
   "llama": PROVIDER_OLLAMA,
   "mistral": PROVIDER_OLLAMA,
+  "mixtral": PROVIDER_OLLAMA,
   "qwen": PROVIDER_OLLAMA,
   "phi": PROVIDER_OLLAMA,
+  "gemma": PROVIDER_OLLAMA,
+  "codellama": PROVIDER_OLLAMA,
+  "llava": PROVIDER_OLLAMA,
+  "deepseek": PROVIDER_OLLAMA,
 }
 
 # Cached client instances
@@ -63,6 +68,11 @@ def get_provider_for_model(model: str, provider_override: str | None = None) -> 
 
   model_lower = model.lower()
 
+  # gpt-oss is an open-weight model served locally via Ollama; it must be
+  # matched before the generic "gpt-" -> OpenAI prefix below.
+  if model_lower.startswith("gpt-oss"):
+    return PROVIDER_OLLAMA
+
   for prefix, provider in PREFIX_MAPPING.items():
     if model_lower.startswith(prefix):
       return provider
@@ -70,7 +80,8 @@ def get_provider_for_model(model: str, provider_override: str | None = None) -> 
   raise ProviderError(
     f"Cannot determine provider for model: {model}. "
     "Use --provider to specify explicitly, or use a recognized model prefix "
-    "(gpt-*, o1-*, o3-*, claude-*, gemini-*, ollama/*, llama*, mistral*, qwen*, phi*)."
+    "(gpt-*, o1-*, o3-*, claude-*, gemini-*, ollama/*, llama*, mistral*, "
+    "mixtral*, qwen*, phi*, gemma*, codellama*, llava*, deepseek*, gpt-oss*)."
   )
 
 
@@ -137,10 +148,11 @@ def _create_openai_client() -> "LLMClientProtocol":
     from .openai_client import OpenAILLMClient
 
     return OpenAILLMClient(api_key=api_key)
-  except ImportError:
+  except ImportError as e:
     raise ProviderError(
-      "OpenAI SDK not installed. Install with: pip install openai"
-    )
+      f"OpenAI SDK not available ({e}). "
+      "Install or repair with: pip install openai"
+    ) from e
 
 
 def _create_anthropic_client() -> "LLMClientProtocol":
@@ -156,10 +168,11 @@ def _create_anthropic_client() -> "LLMClientProtocol":
     from .anthropic_client import AnthropicClient
 
     return AnthropicClient(api_key=api_key)
-  except ImportError:
+  except ImportError as e:
     raise ProviderError(
-      "Anthropic SDK not installed. Install with: pip install anthropic"
-    )
+      f"Anthropic SDK not available ({e}). "
+      "Install or repair with: pip install anthropic"
+    ) from e
 
 
 def _create_gemini_client() -> "LLMClientProtocol":
@@ -175,11 +188,11 @@ def _create_gemini_client() -> "LLMClientProtocol":
     from .gemini_client import GeminiClient
 
     return GeminiClient(api_key=api_key)
-  except ImportError:
+  except ImportError as e:
     raise ProviderError(
-      "Google Generative AI SDK not installed. "
-      "Install with: pip install google-generativeai"
-    )
+      f"Google Generative AI SDK not available ({e}). "
+      "Install or repair with: pip install google-generativeai"
+    ) from e
 
 
 def _create_ollama_client() -> "LLMClientProtocol":
@@ -190,10 +203,11 @@ def _create_ollama_client() -> "LLMClientProtocol":
     from .ollama_client import OllamaClient
 
     return OllamaClient(base_url=base_url)
-  except ImportError:
+  except ImportError as e:
     raise ProviderError(
-      "Ollama SDK not installed. Install with: pip install ollama"
-    )
+      f"Ollama SDK not available ({e}). "
+      "Install or repair with: pip install ollama"
+    ) from e
 
 
 def clear_client_cache() -> None:

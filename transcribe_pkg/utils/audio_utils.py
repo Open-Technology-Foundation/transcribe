@@ -6,6 +6,7 @@ This module provides utilities for audio file manipulation, including
 splitting audio into smaller chunks for processing large files efficiently.
 """
 import os
+import shutil
 import logging
 import tempfile
 from pydub import AudioSegment
@@ -41,6 +42,7 @@ class AudioProcessor:
         """
         self.logger = logger or get_logger(__name__)
         self.temp_files = []
+        self.temp_dirs = []
 
     def __enter__(self):
         """Context manager entry."""
@@ -65,6 +67,10 @@ class AudioProcessor:
                 except Exception as e:
                     self.logger.warning(f"Failed to remove temporary file {file_path}: {str(e)}")
         self.temp_files = []
+        for dir_path in self.temp_dirs:
+            shutil.rmtree(dir_path, ignore_errors=True)
+            self.logger.debug(f"Removed temporary directory: {dir_path}")
+        self.temp_dirs = []
     
     def get_audio_format(self, audio_path: str) -> str:
         """
@@ -144,8 +150,11 @@ class AudioProcessor:
         try:
             audio = self.load_audio(audio_path)
             total_length_ms = len(audio)
+            if total_length_ms == 0:
+                raise ValueError(f"Audio file contains no audio data: {audio_path}")
             chunks = []
             temp_dir = tempfile.mkdtemp()
+            self.temp_dirs.append(temp_dir)
             
             self.logger.info(f"Splitting audio into {chunk_length_ms/1000:.1f}-second chunks")
             

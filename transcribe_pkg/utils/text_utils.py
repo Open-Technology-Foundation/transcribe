@@ -160,8 +160,7 @@ def split_text_for_processing(
             chunks.append(text[i:i + max_chunk_size])
         return chunks
     
-    # Pre-compute sentence lengths to avoid recalculation - O(n) operation
-    sentence_lengths = [len(sentence) for sentence in all_sentences]
+    # Pre-compute sentence byte lengths to avoid recalculation - O(n) operation
     sentence_byte_lengths = [len(sentence.encode('utf-8')) for sentence in all_sentences]
     
     chunks = []
@@ -210,8 +209,10 @@ def split_text_for_processing(
                 else:
                     break
             
-            # Back up by the overlap amount, but ensure we always make forward progress
-            # At minimum, advance by 1 sentence to prevent infinite loops
+            # Back up by the overlap amount, but ensure we always make forward progress.
+            # The trailing "- 1" is an intentional forward-progress guard (not an off-by-one
+            # bug): it reserves at least one sentence of net advance per iteration so the
+            # outer loop can never stall, regardless of the requested overlap size.
             max_backup = sentence_index - chunk_start_index - 1
             actual_backup = min(overlap_sentences, max_backup)
             sentence_index -= actual_backup

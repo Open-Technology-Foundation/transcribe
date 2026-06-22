@@ -120,7 +120,7 @@ class OpenAIClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type((APIRateLimitError, APIConnectionError)),
+        retry=retry_if_exception_type((APIRateLimitError, APIConnectionError, openai.APITimeoutError)),
         reraise=True
     )
     def transcribe_audio(
@@ -221,7 +221,7 @@ class OpenAIClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type((APIRateLimitError, APIConnectionError)),
+        retry=retry_if_exception_type((APIRateLimitError, APIConnectionError, openai.APITimeoutError)),
         reraise=True
     )
     def chat_completion(
@@ -289,7 +289,10 @@ class OpenAIClient:
 
             self.logger.debug("HTTP Request: POST https://api.openai.com/v1/chat/completions \"HTTP/1.1 200 OK\"")
 
-            if not response.choices or not response.choices[0].message.content.strip():
+            # content is Optional[str]: reasoning models (GPT-5, o1, o3) often
+            # return None, so read it safely before calling .strip().
+            content = response.choices[0].message.content if response.choices else None
+            if not response.choices or not content or not content.strip():
                 # Empty responses can happen with reasoning models (GPT-5, o1, o3)
                 # Use debug level for reasoning models since they have temperature=1 (less deterministic)
                 if _is_reasoning_model(model):
@@ -298,7 +301,7 @@ class OpenAIClient:
                     self.logger.warning(f"Empty response from API: user_prompt='{user_prompt[:128]}...'")
                 return ""
 
-            return response.choices[0].message.content.strip()
+            return content.strip()
             
         except openai.RateLimitError as e:
             self.logger.warning(f"Rate limit exceeded: {str(e)}")
@@ -363,10 +366,9 @@ def call_llm(user_prompt: str, system_prompt: str | None = None, model: str = DE
         provider: Optional explicit provider override (openai, anthropic, gemini, ollama)
 
     Returns:
-        Generated response text
+        str: model response text, or '' if the response was empty.
 
     Raises:
-        EmptyResponseError: If response is empty
         APIError: For other API errors
         ProviderError: If provider cannot be determined or SDK not installed
 
@@ -503,7 +505,7 @@ def transcribe_audio(audio_file: str | BinaryIO, model: str = "whisper-1",
     try:
         # Use global openai_client if available (for testing), otherwise get a new one
         global openai_client
-        if openai_client is not None:
+        if openai_client is not None and hasattr(openai_client, "audio"):
             # For testing - use the mocked client directly with standard OpenAI interface
             transcription = openai_client.audio.transcriptions.create(
                 file=audio_file,
@@ -570,12 +572,13 @@ def _call_llm_impl(system_prompt: str, user_prompt: str, model: str = DEFAULT_LL
         
         if not response.choices:
             raise EmptyResponseError("No choices in API response")
-            
-        content = response.choices[0].message.content.strip()
-        if not content:
+
+        # content is Optional[str]: guard against None before calling .strip().
+        raw = response.choices[0].message.content
+        if not raw or not raw.strip():
             raise EmptyResponseError("Empty content in API response")
-            
-        return content
+
+        return raw.strip()
         
     except openai.APIError as e:
         raise APIError(f"OpenAI API error: {str(e)}") from e

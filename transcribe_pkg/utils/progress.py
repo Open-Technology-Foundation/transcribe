@@ -8,9 +8,6 @@ long-running operations like transcription, processing, and API calls.
 import sys
 import time
 import logging
-from typing import Any
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 
 class ProgressDisplay:
     """
@@ -167,93 +164,5 @@ class ProgressDisplay:
             hours = int(seconds // 3600)
             minutes = int((seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
-
-class ParallelProcessor:
-    """
-    Process items in parallel with progress tracking.
-    
-    This class handles parallel processing of items with a thread pool,
-    while providing progress updates via a ProgressDisplay.
-    """
-    
-    def __init__(
-        self,
-        max_workers: int = 4,
-        description: str = "Processing",
-        logger: logging.Logger | None = None
-    ):
-        """
-        Initialize the parallel processor.
-        
-        Args:
-            max_workers: Maximum number of workers in the thread pool
-            description: Description of the processing operation
-            logger: Logger instance for log output
-        """
-        self.max_workers = max_workers
-        self.description = description
-        self.logger = logger
-    
-    def process(
-        self,
-        items: list[Any],
-        process_func: Callable,
-        *args: Any,
-        **kwargs: Any
-    ) -> list[Any]:
-        """
-        Process items in parallel with progress tracking.
-        
-        Args:
-            items: List of items to process
-            process_func: Function to apply to each item
-            *args: Additional positional arguments for process_func
-            **kwargs: Additional keyword arguments for process_func
-            
-        Returns:
-            List of processed results
-        """
-        total_items = len(items)
-        results = [None] * total_items
-        completed = 0
-        
-        # Create progress display
-        progress = ProgressDisplay(
-            total=total_items,
-            description=self.description,
-            logger=self.logger
-        )
-        
-        # Define the worker function
-        def worker(index, item):
-            try:
-                return index, process_func(item, *args, **kwargs)
-            except Exception as e:
-                if self.logger:
-                    self.logger.error(f"Error processing item {index}: {str(e)}")
-                return index, None
-        
-        # Process items in parallel
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [
-                executor.submit(worker, idx, item) 
-                for idx, item in enumerate(items)
-            ]
-            
-            # Collect results as they complete
-            for future in futures:
-                try:
-                    index, result = future.result()
-                    results[index] = result
-                    completed += 1
-                    progress.update(completed)
-                except Exception as e:
-                    if self.logger:
-                        self.logger.error(f"Error in worker: {str(e)}")
-                    completed += 1
-                    progress.update(completed)
-        
-        progress.complete()
-        return results
 
 #fin

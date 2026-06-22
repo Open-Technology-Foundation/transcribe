@@ -9,6 +9,7 @@ __all__ = [
     "transcribe_command",
     "clean_transcript_command",
     "create_sentences_command",
+    "language_codes_command",
 ]
 
 #fin

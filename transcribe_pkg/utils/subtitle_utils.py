@@ -26,10 +26,11 @@ def format_timestamp_srt(seconds: float) -> str:
     Returns:
         Formatted timestamp string in SRT format
     """
-    hours, remainder = divmod(seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    milliseconds = int((seconds - int(seconds)) * 1000)
-    return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02},{milliseconds:03}"
+    total_ms = int(round(seconds * 1000))
+    hours, total_ms = divmod(total_ms, 3600000)
+    minutes, total_ms = divmod(total_ms, 60000)
+    secs, millis = divmod(total_ms, 1000)
+    return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
 
 
 @functools.lru_cache(maxsize=1024)
@@ -43,10 +44,11 @@ def format_timestamp_vtt(seconds: float) -> str:
     Returns:
         Formatted timestamp string in VTT format
     """
-    hours, remainder = divmod(seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    milliseconds = int((seconds - int(seconds)) * 1000)
-    return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}.{milliseconds:03}"
+    total_ms = int(round(seconds * 1000))
+    hours, total_ms = divmod(total_ms, 3600000)
+    minutes, total_ms = divmod(total_ms, 60000)
+    secs, millis = divmod(total_ms, 1000)
+    return f"{hours:02}:{minutes:02}:{secs:02}.{millis:03}"
 
 
 def generate_srt(segments: list[dict[str, Any]], max_line_length: int = 42, max_duration: float = 5.0) -> str:
@@ -75,23 +77,27 @@ def generate_srt(segments: list[dict[str, Any]], max_line_length: int = 42, max_
             
         # Split long segments by duration
         if end_time - start_time > max_duration:
-            # Calculate number of parts needed
-            num_parts = int((end_time - start_time) / max_duration) + 1
-            duration_per_part = (end_time - start_time) / num_parts
-            
             # Split the segment text roughly by word count
             words = text.split()
-            words_per_part = len(words) // num_parts
-            
+            # Calculate number of parts needed, never more than the word count
+            # so each part can hold at least one word.
+            num_parts = max(1, min(int((end_time - start_time) / max_duration) + 1, len(words)))
+            duration_per_part = (end_time - start_time) / num_parts
+            words_per_part = max(1, len(words) // num_parts)
+
             for i in range(num_parts):
                 part_start = start_time + (i * duration_per_part)
                 part_end = part_start + duration_per_part
-                
+
                 # Get subset of words for this part
                 start_idx = i * words_per_part
                 end_idx = start_idx + words_per_part if i < num_parts - 1 else len(words)
-                part_text = " ".join(words[start_idx:end_idx])
-                
+                part_text = " ".join(words[start_idx:end_idx]).strip()
+
+                # Skip empty parts so no malformed (text-less) cue is emitted
+                if not part_text:
+                    continue
+
                 # Format for SRT
                 srt_content.append(f"{subtitle_index}")
                 srt_content.append(f"{format_timestamp_srt(part_start)} --> {format_timestamp_srt(part_end)}")
@@ -160,23 +166,27 @@ def generate_vtt(segments: list[dict[str, Any]], max_line_length: int = 42, max_
             
         # Split long segments by duration
         if end_time - start_time > max_duration:
-            # Calculate number of parts needed
-            num_parts = int((end_time - start_time) / max_duration) + 1
-            duration_per_part = (end_time - start_time) / num_parts
-            
             # Split the segment text roughly by word count
             words = text.split()
-            words_per_part = len(words) // num_parts
-            
+            # Calculate number of parts needed, never more than the word count
+            # so each part can hold at least one word.
+            num_parts = max(1, min(int((end_time - start_time) / max_duration) + 1, len(words)))
+            duration_per_part = (end_time - start_time) / num_parts
+            words_per_part = max(1, len(words) // num_parts)
+
             for i in range(num_parts):
                 part_start = start_time + (i * duration_per_part)
                 part_end = part_start + duration_per_part
-                
+
                 # Get subset of words for this part
                 start_idx = i * words_per_part
                 end_idx = start_idx + words_per_part if i < num_parts - 1 else len(words)
-                part_text = " ".join(words[start_idx:end_idx])
-                
+                part_text = " ".join(words[start_idx:end_idx]).strip()
+
+                # Skip empty parts so no malformed (text-less) cue is emitted
+                if not part_text:
+                    continue
+
                 # Format for VTT
                 vtt_content.append(f"{format_timestamp_vtt(part_start)} --> {format_timestamp_vtt(part_end)}")
                 
@@ -235,19 +245,22 @@ def save_subtitles(transcript_result: dict[str, Any], output_path: str, format_t
         logger.error("No segments with timestamps found in transcript")
         return None
     
-    # Generate appropriate extension if not specified
+    # Explicit format_type wins; only fall back to the path extension when no
+    # valid format was requested.
+    fmt = (format_type or "").lower()
+    if fmt not in ("srt", "vtt"):
+        fmt = "vtt" if output_path.lower().endswith(".vtt") else "srt"
+
+    # Normalise the output extension to match the chosen format.
     base, ext = os.path.splitext(output_path)
-    if not ext or ext.lower() not in ['.srt', '.vtt']:
-        output_path = f"{base}.{format_type}"
-    
-    # Generate content based on format
-    if format_type.lower() == "srt" or output_path.lower().endswith('.srt'):
+    if ext.lower() not in (".srt", ".vtt"):
+        output_path = f"{base}.{fmt}"
+
+    # Generate content based on the resolved format.
+    if fmt == "srt":
         content = generate_srt(segments)
-    elif format_type.lower() == "vtt" or output_path.lower().endswith('.vtt'):
-        content = generate_vtt(segments)
     else:
-        logger.error(f"Unsupported subtitle format: {format_type}")
-        return None
+        content = generate_vtt(segments)
     
     # Write to file
     try:

@@ -11,6 +11,7 @@ from typing import Any
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
+from transcribe_pkg.utils.api_utils import APIError
 from transcribe_pkg.utils.logging_utils import get_logger
 from transcribe_pkg.utils.progress import ProgressDisplay
 from transcribe_pkg.utils.text_utils import split_text_for_processing
@@ -50,10 +51,19 @@ class ParallelProcessor:
         else:
             self.max_workers = max_workers
             
-        self.use_processes = use_processes
+        # Process-pool mode is unsupported for this I/O-bound API workload: the
+        # worker closures capture a client-bearing object that cannot be pickled.
+        # Accept the public parameter (external callers may pass it) but fall
+        # back to threads instead of crashing later with a PicklingError.
+        if use_processes:
+            self.logger.warning(
+                "use_processes=True is unsupported for this I/O-bound API "
+                "workload; falling back to ThreadPoolExecutor"
+            )
+        self.use_processes = False
         self.chunk_size = chunk_size
         self.overlap = overlap
-        
+
         self.logger.debug(f"Initialized ParallelProcessor with {self.max_workers} workers")
     
     def process_text(
@@ -96,23 +106,25 @@ class ParallelProcessor:
                 unit="chunks",
             )
         
-        # Process chunks in parallel
-        processed_chunks = []
-        
         # Choose executor based on configuration
         executor_class = ProcessPoolExecutor if self.use_processes else ThreadPoolExecutor
-        
+
         # Process chunks in parallel
         chunk_results = {}
         completed = 0
-        
+        failed = 0
+
         with executor_class(max_workers=self.max_workers) as executor:
             # Submit all tasks
             future_to_idx = {}
             for i, chunk in enumerate(chunks):
-                future = executor.submit(process_func, chunk, kwargs)
+                # Inject the chunk index so workers can log/cache per chunk
+                # instead of every chunk reporting index 0.
+                chunk_kwargs = kwargs.copy()
+                chunk_kwargs["chunk_index"] = i
+                future = executor.submit(process_func, chunk, chunk_kwargs)
                 future_to_idx[future] = i
-            
+
             # Process results as they complete
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
@@ -123,16 +135,25 @@ class ParallelProcessor:
                     self.logger.error(f"Error processing chunk {idx}: {str(e)}")
                     # Use original chunk on error
                     chunk_results[idx] = chunks[idx]
-                
+                    failed += 1
+
                 # Update progress
                 completed += 1
                 if progress:
                     progress.update(completed)
-        
+
         # Ensure progress is complete
         if progress:
             progress.complete()
-        
+
+        # Surface an aggregate signal for worker failures: a total wipeout
+        # must not masquerade as success (returning the raw input), and a
+        # partial failure should be visible in the logs.
+        if total_chunks and failed == total_chunks:
+            raise APIError(f"All {total_chunks} chunks failed post-processing")
+        elif failed:
+            self.logger.warning(f"{failed}/{total_chunks} chunks fell back to raw text")
+
         # Combine results in the original order
         ordered_results = [chunk_results[i] for i in range(total_chunks)]
         
@@ -213,12 +234,17 @@ class ParallelProcessor:
         if progress:
             progress.complete()
         
-        # Combine results in the original order
-        ordered_results = [
-            chunk_results[i] for i in range(total_chunks) 
-            if chunk_results[i] is not None
-        ]
-        
+        # Combine results in the original order, preserving positions. Failed
+        # chunks are kept as None placeholders so later chunks do not shift up
+        # (which would silently misalign timestamps/ordering downstream).
+        ordered_results = [chunk_results[i] for i in range(total_chunks)]
+        missing = [i for i in range(total_chunks) if chunk_results[i] is None]
+        if missing:
+            self.logger.warning(
+                f"{len(missing)}/{total_chunks} audio chunks missing at "
+                f"indices {missing}; preserved as None placeholders"
+            )
+
         # Apply combine function if provided
         if combine_func and ordered_results:
             return combine_func(ordered_results)

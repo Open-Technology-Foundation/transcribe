@@ -72,6 +72,30 @@ class TestProviderRouting(unittest.TestCase):
       provider = get_provider_for_model(model)
       self.assertEqual(provider, PROVIDER_OLLAMA, f"Model {model} should route to ollama")
 
+  def test_gpt_oss_routes_to_ollama(self):
+    """Test that gpt-oss (Ollama-hosted) routes to ollama, not openai."""
+    for model in ["gpt-oss", "gpt-oss:20b", "gpt-oss-120b"]:
+      provider = get_provider_for_model(model)
+      self.assertEqual(provider, PROVIDER_OLLAMA, f"Model {model} should route to ollama")
+
+  def test_additional_local_models_route_to_ollama(self):
+    """Test that common local model name prefixes route to ollama."""
+    local_models = [
+      "gemma",
+      "gemma2",
+      "gemma2:9b",
+      "mixtral",
+      "mixtral-8x7b",
+      "codellama",
+      "codellama:13b",
+      "llava",
+      "deepseek",
+      "deepseek-coder",
+    ]
+    for model in local_models:
+      provider = get_provider_for_model(model)
+      self.assertEqual(provider, PROVIDER_OLLAMA, f"Model {model} should route to ollama")
+
   def test_case_insensitive_routing(self):
     """Test that model prefix routing is case-insensitive."""
     self.assertEqual(get_provider_for_model("CLAUDE-sonnet-4-5"), PROVIDER_ANTHROPIC)
@@ -266,6 +290,236 @@ class TestAnthropicClient(unittest.TestCase):
 
     call_kwargs = mock_client.messages.create.call_args[1]
     self.assertEqual(call_kwargs["temperature"], 1.0)  # Should be capped
+
+  @patch("transcribe_pkg.utils.providers.anthropic_client.Anthropic")
+  def test_chat_completion_zero_temperature_forwarded(self, mock_anthropic_class):
+    """Test that temperature=0.0 is forwarded (deterministic), not dropped."""
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+
+    mock_response = MagicMock()
+    mock_block = MagicMock()
+    mock_block.text = "Response"
+    mock_response.content = [mock_block]
+    mock_client.messages.create.return_value = mock_response
+
+    from transcribe_pkg.utils.providers.anthropic_client import AnthropicClient
+
+    client = AnthropicClient(api_key="test-key")
+    client.chat_completion(
+      system_prompt="Test",
+      user_prompt="Hello",
+      model="claude-sonnet-4-5",
+      temperature=0.0,  # Deterministic — must be sent, not omitted
+    )
+
+    call_kwargs = mock_client.messages.create.call_args[1]
+    self.assertIn("temperature", call_kwargs)
+    self.assertEqual(call_kwargs["temperature"], 0.0)
+
+  @patch("transcribe_pkg.utils.providers.anthropic_client.Anthropic")
+  def test_chat_completion_negative_temperature_clamped(self, mock_anthropic_class):
+    """Test that a negative temperature is clamped to the valid floor 0.0."""
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+
+    mock_response = MagicMock()
+    mock_block = MagicMock()
+    mock_block.text = "Response"
+    mock_response.content = [mock_block]
+    mock_client.messages.create.return_value = mock_response
+
+    from transcribe_pkg.utils.providers.anthropic_client import AnthropicClient
+
+    client = AnthropicClient(api_key="test-key")
+    client.chat_completion(
+      system_prompt="Test",
+      user_prompt="Hello",
+      model="claude-sonnet-4-5",
+      temperature=-0.5,
+    )
+
+    call_kwargs = mock_client.messages.create.call_args[1]
+    self.assertEqual(call_kwargs["temperature"], 0.0)
+
+
+class _FakeGeminiResponse:
+  """Minimal stand-in for a google.generativeai response object.
+
+  Mirrors the real SDK contract: the ``.text`` accessor raises ValueError
+  when there is no usable Part (safety block / finish_reason != STOP).
+  """
+
+  def __init__(self, candidates, text=None, text_error=None):
+    self.candidates = candidates
+    self._text = text
+    self._text_error = text_error
+
+  @property
+  def text(self):
+    if self._text_error is not None:
+      raise self._text_error
+    return self._text
+
+
+class TestGeminiClient(unittest.TestCase):
+  """Tests for the Gemini client implementation."""
+
+  def setUp(self):
+    """Stub the (optional, possibly-uninstalled) google.generativeai SDK."""
+    import sys
+
+    self._sdk_patcher = patch.dict(
+      sys.modules,
+      {
+        "google": MagicMock(),
+        "google.generativeai": MagicMock(),
+      },
+    )
+    self._sdk_patcher.start()
+
+  def tearDown(self):
+    self._sdk_patcher.stop()
+
+  @patch("transcribe_pkg.utils.providers.gemini_client.genai")
+  def test_chat_completion_returns_text(self, mock_genai):
+    """Test Gemini chat completion returns response text."""
+    mock_model = MagicMock()
+    mock_genai.GenerativeModel.return_value = mock_model
+
+    mock_model.generate_content.return_value = _FakeGeminiResponse(
+      candidates=[object()], text="Hello from Gemini"
+    )
+
+    from transcribe_pkg.utils.providers.gemini_client import GeminiClient
+
+    client = GeminiClient(api_key="test-key")
+    result = client.chat_completion(
+      system_prompt="Be helpful.",
+      user_prompt="Hello",
+      model="gemini-1.5-pro",
+    )
+
+    self.assertEqual(result, "Hello from Gemini")
+
+  @patch("transcribe_pkg.utils.providers.gemini_client.genai")
+  def test_chat_completion_no_candidates_returns_empty(self, mock_genai):
+    """Test that an empty-candidates response returns '' instead of raising."""
+    mock_model = MagicMock()
+    mock_genai.GenerativeModel.return_value = mock_model
+
+    mock_model.generate_content.return_value = _FakeGeminiResponse(candidates=[])
+
+    from transcribe_pkg.utils.providers.gemini_client import GeminiClient
+
+    client = GeminiClient(api_key="test-key")
+    result = client.chat_completion(
+      system_prompt="",
+      user_prompt="Hello",
+      model="gemini-1.5-pro",
+    )
+
+    self.assertEqual(result, "")
+
+  @patch("transcribe_pkg.utils.providers.gemini_client.genai")
+  def test_chat_completion_blocked_text_raises_returns_empty(self, mock_genai):
+    """Test that a safety-blocked response (.text raises ValueError) returns ''."""
+    mock_model = MagicMock()
+    mock_genai.GenerativeModel.return_value = mock_model
+
+    # Real SDK raises ValueError on .text when there is no valid Part.
+    mock_model.generate_content.return_value = _FakeGeminiResponse(
+      candidates=[object()], text_error=ValueError("no valid Part")
+    )
+
+    from transcribe_pkg.utils.providers.gemini_client import GeminiClient
+
+    client = GeminiClient(api_key="test-key")
+    result = client.chat_completion(
+      system_prompt="",
+      user_prompt="Hello",
+      model="gemini-1.5-pro",
+    )
+
+    self.assertEqual(result, "")
+
+
+class TestImportErrorChaining(unittest.TestCase):
+  """Tests that broken-SDK ImportErrors preserve their cause and message."""
+
+  def setUp(self):
+    clear_client_cache()
+
+  def tearDown(self):
+    clear_client_cache()
+
+  def _force_import_error(self, target_module: str):
+    """Return a patched __import__ that raises ImportError for target_module."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+      if target_module in name:
+        raise ImportError("broken sdk internals")
+      return real_import(name, *args, **kwargs)
+
+    return fake_import
+
+  @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
+  def test_anthropic_import_error_preserves_cause(self):
+    """Anthropic factory: broken SDK should chain cause and include detail."""
+    import builtins
+
+    with patch.object(
+      builtins, "__import__", self._force_import_error("anthropic_client")
+    ):
+      with self.assertRaises(ProviderError) as ctx:
+        get_client_for_model("claude-sonnet-4-5")
+
+    self.assertIsInstance(ctx.exception.__cause__, ImportError)
+    self.assertIn("broken sdk internals", str(ctx.exception))
+
+  @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+  def test_openai_import_error_preserves_cause(self):
+    """OpenAI factory: broken SDK should chain cause and include detail."""
+    import builtins
+
+    with patch.object(
+      builtins, "__import__", self._force_import_error("openai_client")
+    ):
+      with self.assertRaises(ProviderError) as ctx:
+        get_client_for_model("gpt-4o")
+
+    self.assertIsInstance(ctx.exception.__cause__, ImportError)
+    self.assertIn("broken sdk internals", str(ctx.exception))
+
+  @patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"})
+  def test_gemini_import_error_preserves_cause(self):
+    """Gemini factory: broken SDK should chain cause and include detail."""
+    import builtins
+
+    with patch.object(
+      builtins, "__import__", self._force_import_error("gemini_client")
+    ):
+      with self.assertRaises(ProviderError) as ctx:
+        get_client_for_model("gemini-1.5-pro")
+
+    self.assertIsInstance(ctx.exception.__cause__, ImportError)
+    self.assertIn("broken sdk internals", str(ctx.exception))
+
+  def test_ollama_import_error_preserves_cause(self):
+    """Ollama factory: broken SDK should chain cause and include detail."""
+    import builtins
+
+    with patch.object(
+      builtins, "__import__", self._force_import_error("ollama_client")
+    ):
+      with self.assertRaises(ProviderError) as ctx:
+        get_client_for_model("ollama/llama3.2")
+
+    self.assertIsInstance(ctx.exception.__cause__, ImportError)
+    self.assertIn("broken sdk internals", str(ctx.exception))
 
 
 class TestLLMClientProtocol(unittest.TestCase):

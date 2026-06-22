@@ -196,6 +196,94 @@ class TestContentAnalyzer(unittest.TestCase):
 
     self.assertIn("programming", prompt)
 
+  def test_get_specialized_prompt_maps_only_to_existing_templates(self):
+    """Test that every content_type maps to a template that actually exists.
+
+    Finding 1: template_mapping must not reference undefined templates
+    (speech_cleaning, lecture_cleaning, *_summary) that silently fall back.
+    """
+    for content_type in ["dialogue", "technical", "speech", "lecture", "general"]:
+      for purpose in ["clean", "summarize"]:
+        analysis = {"content_type": content_type, "language": "en", "domains": []}
+        # Should resolve to a real template and not raise.
+        prompt = self.analyzer.get_specialized_prompt(analysis, purpose=purpose)
+        self.assertIsInstance(prompt, str)
+        self.assertGreater(len(prompt), 0)
+
+  def test_measure_technical_level_whitespace_only(self):
+    """Test technical level measurement on whitespace-only text.
+
+    Finding 2: len("   ".split()) == 0 caused ZeroDivisionError.
+    """
+    score = self.analyzer._measure_technical_level("   \n\t  ")
+    self.assertEqual(score, 0.0)
+
+  def test_measure_technical_level_empty(self):
+    """Test technical level measurement on empty text (no division by zero)."""
+    score = self.analyzer._measure_technical_level("")
+    self.assertEqual(score, 0.0)
+
+  @patch("transcribe_pkg.core.analyzer.call_llm")
+  def test_detect_content_type_prose_not_dialogue(self, mock_call_llm):
+    """Test ordinary prose with contractions is not misclassified as dialogue.
+
+    Finding 3: contraction apostrophes and colons counted as dialogue markers
+    pushed plain prose over the dialogue threshold in the fallback detector.
+    """
+    mock_call_llm.side_effect = Exception("API Error")
+
+    prose = (
+      "It's a calm morning and the weather isn't bad at all. "
+      "She's been thinking about the trip they'd planned, and he's "
+      "sure they'll enjoy it. Don't you think it's wonderful? Here's "
+      "the thing: we've all wanted this, and it's finally happening. "
+      "They couldn't be happier, and I'm certain you'd agree as well."
+    )
+
+    result = self.analyzer._detect_content_type(prose)
+    self.assertEqual(result, "general")
+
+  @patch("transcribe_pkg.core.analyzer.call_llm")
+  def test_detect_content_type_speaker_labels_is_dialogue(self, mock_call_llm):
+    """Test text with speaker labels is still classified as dialogue in fallback.
+
+    Finding 3: the speaker-label regex must keep recognising genuine
+    dialogue even after bare apostrophes/colons are dropped as markers.
+    """
+    mock_call_llm.side_effect = Exception("API Error")
+
+    # Above MIN_WORDS_FOR_ANALYSIS so the heuristic detector runs.
+    dialogue = "\n".join(
+      [
+        "John: Hello there, how are you doing on this fine morning today?",
+        "Mary: I am doing quite well overall, thank you so much for asking.",
+        "John: Did you happen to catch the rather important news this morning?",
+        "Mary: I did indeed catch it, and it was genuinely surprising to me.",
+        "John: We should probably talk about what it means for the team here.",
+        "Mary: That sounds like a very sensible and reasonable plan to me.",
+      ]
+    )
+
+    result = self.analyzer._detect_content_type(dialogue)
+    self.assertEqual(result, "dialogue")
+
+  @patch("transcribe_pkg.core.analyzer.call_llm")
+  def test_detect_content_type_short_text_fallback_is_general(self, mock_call_llm):
+    """Test short text on the fallback path returns 'general'.
+
+    Finding 4: when the LLM is unavailable, text below
+    MIN_WORDS_FOR_ANALYSIS lacks enough signal for the heuristic detector
+    and must short-circuit to 'general' rather than tripping a threshold.
+    """
+    mock_call_llm.side_effect = Exception("API Error")
+
+    # Only a handful of words, but carries a technical marker ("function")
+    # that the raw heuristic would otherwise latch onto.
+    short_text = "The function returns quickly."
+
+    result = self.analyzer._detect_content_type(short_text)
+    self.assertEqual(result, "general")
+
 
 class TestSpecializedProcessor(unittest.TestCase):
   """Tests for the SpecializedProcessor class."""

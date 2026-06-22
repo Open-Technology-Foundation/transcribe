@@ -24,7 +24,6 @@ __all__ = [
     "AudioProcessor",
     # Cache utilities
     "CacheManager",
-    "cached",
     # Configuration
     "Config",
     "init_config",

@@ -115,7 +115,7 @@ class TestAPIUtils(unittest.TestCase):
         
         try:
             # Call the main function with new parameter order
-            result = call_llm("User input", "System prompt")
+            call_llm("User input", "System prompt")
             self.fail("EmptyResponseError not raised")
         except EmptyResponseError:
             # Success - error was raised as expected
@@ -130,7 +130,7 @@ class TestAPIUtils(unittest.TestCase):
         
         try:
             # Call the main function with new parameter order
-            result = call_llm("User input", "System prompt")
+            call_llm("User input", "System prompt")
             self.fail("APIError not raised")
         except APIError:
             # Success - error was raised as expected
@@ -221,6 +221,112 @@ class TestDefaultReasoningEffort(unittest.TestCase):
         """A non-reasoning model returns None so the parameter is omitted."""
         from transcribe_pkg.utils.api_utils import _default_reasoning_effort
         self.assertIsNone(_default_reasoning_effort("gpt-4o"))
+
+
+class TestChatCompletionNoneContent(unittest.TestCase):
+    """`OpenAIClient.chat_completion` must not crash when a reasoning model
+    returns `None` content (ChatCompletionMessage.content is Optional[str])."""
+
+    def _make_client_with_content(self, content):
+        client = OpenAIClient(api_key="test-key")
+        mock_sdk = MagicMock()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = content
+        mock_sdk.chat.completions.create.return_value = mock_response
+        client._client = mock_sdk
+        return client
+
+    def test_none_content_returns_empty_string(self):
+        """None content (common for reasoning models) returns '' not AttributeError."""
+        client = self._make_client_with_content(None)
+        result = client.chat_completion(
+            system_prompt="sys", user_prompt="hi", model="gpt-5"
+        )
+        self.assertEqual(result, "")
+
+    def test_happy_path_still_strips_content(self):
+        """Non-None content is still returned, stripped."""
+        client = self._make_client_with_content("  hello  ")
+        result = client.chat_completion(
+            system_prompt="sys", user_prompt="hi", model="gpt-4o"
+        )
+        self.assertEqual(result, "hello")
+
+
+class TestTranscribeAudioWrapperClient(unittest.TestCase):
+    """Free `transcribe_audio()` must work when the global `openai_client` is an
+    OpenAIClient WRAPPER (exposes the SDK as `.client`, not `.audio`)."""
+
+    def test_wrapper_client_routes_to_transcribe_method(self):
+        """A wrapper global (no `.audio`) must route through client.transcribe_audio()."""
+        import transcribe_pkg.utils.api_utils as api_utils_module
+
+        # Build a real wrapper whose SDK is mocked; it has `.client`, not `.audio`.
+        # With response_format="text" the SDK returns a plain string, and the
+        # wrapper.transcribe_audio() passes that through unchanged.
+        wrapper = OpenAIClient(api_key="test-key")
+        mock_sdk = MagicMock()
+        mock_sdk.audio.transcriptions.create.return_value = "wrapper transcription"
+        wrapper._client = mock_sdk
+
+        self.assertFalse(hasattr(wrapper, "audio"))
+
+        # The else-branch routes via get_openai_client(), which returns the
+        # module-global _global_client; seed both globals with the wrapper.
+        saved_client = api_utils_module.openai_client
+        saved_global = api_utils_module._global_client
+        api_utils_module.openai_client = wrapper
+        api_utils_module._global_client = wrapper
+        try:
+            with patch("os.path.exists", return_value=True), \
+                 patch("builtins.open", MagicMock()):
+                result = transcribe_audio("test.mp3", prompt="p")
+        finally:
+            api_utils_module.openai_client = saved_client
+            api_utils_module._global_client = saved_global
+
+        self.assertEqual(result, "wrapper transcription")
+        mock_sdk.audio.transcriptions.create.assert_called_once()
+
+
+class TestTranscribeRetryPredicate(unittest.TestCase):
+    """Transient timeouts (openai.APITimeoutError) must be retried, not dropped."""
+
+    def test_apitimeouterror_is_retryable(self):
+        """transcribe_audio's retry predicate must include openai.APITimeoutError."""
+        import openai
+        exc_types = OpenAIClient.transcribe_audio.retry.retry.exception_types
+        self.assertIn(openai.APITimeoutError, exc_types)
+
+
+class TestCallLLMImplNoneContent(unittest.TestCase):
+    """`_call_llm_impl` must raise EmptyResponseError (not AttributeError) when
+    the API returns None content."""
+
+    def test_none_content_raises_empty_response_error(self):
+        from transcribe_pkg.utils.api_utils import _call_llm_impl
+        import transcribe_pkg.utils.api_utils as api_utils_module
+
+        # Reset/seed the global wrapper with a mocked SDK returning None content.
+        wrapper = OpenAIClient(api_key="test-key")
+        mock_sdk = MagicMock()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = None
+        mock_sdk.chat.completions.create.return_value = mock_response
+        wrapper._client = mock_sdk
+
+        saved_global = api_utils_module._global_client
+        saved_client = api_utils_module.openai_client
+        api_utils_module._global_client = wrapper
+        api_utils_module.openai_client = wrapper
+        try:
+            with self.assertRaises(EmptyResponseError):
+                _call_llm_impl("sys", "user", model="gpt-4o")
+        finally:
+            api_utils_module._global_client = saved_global
+            api_utils_module.openai_client = saved_client
 
 
 if __name__ == '__main__':

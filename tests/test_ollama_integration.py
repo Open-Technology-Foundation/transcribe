@@ -322,7 +322,7 @@ class TestOllamaAvailability(unittest.TestCase):
   def test_ollama_module_importable(self):
     """Test that ollama module can be imported."""
     try:
-      import ollama
+      import ollama  # noqa: F401  # intentional importability probe
       self.assertTrue(True)
     except ImportError:
       self.skipTest("Ollama module not installed")

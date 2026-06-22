@@ -7,9 +7,11 @@ as a Python module with `python -m transcribe_pkg`.
 """
 
 import sys
-from transcribe_pkg.cli.commands import transcribe_command
+# Route through main.transcribe_main so the SIGINT/Ctrl-C handler defined at
+# import time in transcribe_pkg.main is installed (clean exit with code 130).
+from transcribe_pkg.main import transcribe_main
 
 if __name__ == "__main__":
-    sys.exit(transcribe_command())
+    sys.exit(transcribe_main())
 
 #fin

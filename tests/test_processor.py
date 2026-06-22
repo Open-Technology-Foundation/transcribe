@@ -180,12 +180,97 @@ class TestTranscriptProcessor(unittest.TestCase):
     mock_call_llm.return_value = "Translated and processed"
 
     processor = TranscriptProcessor()
-    result = processor._process_chunk("Texto en español.", "general", None, "es")
+    processor._process_chunk("Texto en español.", "general", None, "es")
 
     # Verify language task is in system prompt
     call_args = mock_call_llm.call_args
     system_prompt = call_args[1]["system_prompt"]
     self.assertIn("ES", system_prompt)
+
+  def test_sequential_reassembly_does_not_glue_words(self):
+    """Sequential reassembly must insert a separator between chunks (finding 1).
+
+    A chunk whose processed text ends in a letter/digit/`)`/`:`/`'` was glued
+    directly onto the next chunk, fusing words ("...oneAnd here...").
+    """
+    # Small max_chunk_size so the sequential loop's iteration_limit permits
+    # both mocked chunks (limit = int((len(text)/max_chunk_size)*2)).
+    processor = TranscriptProcessor(
+      max_chunk_size=10, content_aware=False, cache_enabled=False
+    )
+
+    text = "This is chunk one And here is chunk two."
+    with patch.object(
+      processor, "_get_chunk_with_complete_sentences"
+    ) as mock_chunker, patch.object(
+      processor, "_process_chunk", side_effect=lambda c, *a, **k: c
+    ), patch.object(
+      processor.prompt_manager, "generate_summary", return_value=""
+    ):
+      # First call yields chunk one (ends in a letter, not the old whitelist)
+      # with remainder; second yields chunk two and an empty remainder so the
+      # loop terminates.
+      mock_chunker.side_effect = [
+        ("This is chunk one", "And here is chunk two."),
+        ("And here is chunk two.", ""),
+      ]
+      result = processor._process_sequential(
+        text, context="", language="en", content_analysis=False
+      )
+
+    # The two chunks must NOT be glued: "oneAnd" must not appear.
+    self.assertNotIn("oneAnd", result)
+    self.assertIn("one And", result)
+
+  @patch("transcribe_pkg.core.processor.call_llm")
+  def test_process_empty_text_makes_no_llm_calls(self, mock_call_llm):
+    """Empty/whitespace input must early-return without any LLM call (finding 2)."""
+    mock_call_llm.return_value = "should not be called"
+
+    processor = TranscriptProcessor(cache_enabled=False)
+    result = processor.process(
+      "   \n  ", use_parallel=True, content_analysis=False, language="en"
+    )
+
+    self.assertEqual(result, "")
+    mock_call_llm.assert_not_called()
+
+  @patch("transcribe_pkg.core.processor.call_llm")
+  def test_worker_exception_logs_warning_on_fallback(self, mock_call_llm):
+    """A chunk that fails processing must log a WARNING about the raw fallback (finding 3)."""
+    mock_call_llm.side_effect = RuntimeError("boom")
+
+    processor = TranscriptProcessor(content_aware=False, cache_enabled=False)
+
+    with self.assertLogs(processor.logger, level="WARNING") as logctx:
+      result = processor._process_chunk("Raw chunk text.", "", None, "en")
+
+    # Raw-text fallback preserved.
+    self.assertEqual(result, "Raw chunk text.")
+    # A WARNING must mention the unprocessed/fallback nature.
+    joined = "\n".join(logctx.output)
+    self.assertRegex(joined, r"WARNING")
+    self.assertRegex(joined.lower(), r"unprocessed|fell back|fall.?back|raw")
+
+  def test_small_text_parallel_uses_single_call(self):
+    """Small text with use_parallel must process in ONE call, not a 40% split (finding 4)."""
+    processor = TranscriptProcessor(
+      max_chunk_size=3000, content_aware=False, cache_enabled=False
+    )
+
+    text = "This is a short sentence that fits in one chunk."
+    with patch.object(
+      processor, "_process_chunk", side_effect=lambda c, *a, **k: c
+    ) as mock_proc:
+      result = processor.process(
+        text, use_parallel=True, content_analysis=False, language="en"
+      )
+
+    # Exactly one processing call (whole text), not two halves.
+    self.assertEqual(mock_proc.call_count, 1)
+    # The single call received the entire text, not a 40% slice.
+    self.assertEqual(mock_proc.call_args[0][0], text)
+    self.assertEqual(result, text)
 
 
 class TestProcessTranscript(unittest.TestCase):

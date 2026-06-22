@@ -10,8 +10,8 @@ import os
 import hashlib
 import time
 import logging
+import threading
 from typing import Any
-from collections.abc import Callable
 import pickle
 
 from transcribe_pkg.utils.logging_utils import get_logger
@@ -58,6 +58,14 @@ class CacheManager:
         # Create memory cache
         self.memory_cache = {}
         self.memory_timestamp = {}
+
+        # Re-entrant lock guarding the memory cache dicts. The manager is shared
+        # across ThreadPoolExecutor workers, so check-then-act eviction in
+        # _add_to_memory must be serialised to avoid mutating a dict while
+        # min() iterates it and to keep LRU bookkeeping consistent. RLock allows
+        # set()/get() to call the _add_to_memory/_remove_from_memory helpers
+        # while already holding the lock.
+        self._lock = threading.RLock()
         
         # Create cache directory if it doesn't exist
         if self.disk_cache_enabled:
@@ -85,16 +93,17 @@ class CacheManager:
         
         # Check memory cache first if enabled
         if (cache_type in ["memory", "both"]) and self.memory_cache_enabled:
-            if hashed_key in self.memory_cache:
-                timestamp = self.memory_timestamp.get(hashed_key, 0)
-                
-                # Check if item is expired
-                if max_age is None or (time.time() - timestamp) <= max_age:
-                    self.logger.debug(f"Cache hit (memory): {key[:50]}...")
-                    return self.memory_cache[hashed_key]
-                else:
-                    # Remove expired item
-                    self._remove_from_memory(hashed_key)
+            with self._lock:
+                if hashed_key in self.memory_cache:
+                    timestamp = self.memory_timestamp.get(hashed_key, 0)
+
+                    # Check if item is expired
+                    if max_age is None or (time.time() - timestamp) <= max_age:
+                        self.logger.debug(f"Cache hit (memory): {key[:50]}...")
+                        return self.memory_cache[hashed_key]
+                    else:
+                        # Remove expired item
+                        self._remove_from_memory(hashed_key)
         
         # Check disk cache if enabled
         if (cache_type in ["disk", "both"]) and self.disk_cache_enabled:
@@ -147,22 +156,27 @@ class CacheManager:
         
         # Store in memory cache
         if (cache_type in ["memory", "both"]) and self.memory_cache_enabled:
-            self._add_to_memory(hashed_key, value)
+            with self._lock:
+                self._add_to_memory(hashed_key, value)
         
         # Store in disk cache
         if (cache_type in ["disk", "both"]) and self.disk_cache_enabled:
+            cache_path = self._get_cache_path(hashed_key)
+            tmp_path = f"{cache_path}.tmp"
             try:
-                cache_path = self._get_cache_path(hashed_key)
-                
                 # Save to disk atomically to prevent corruption
-                tmp_path = f"{cache_path}.tmp"
                 with open(tmp_path, "wb") as f:
                     pickle.dump(value, f)
                 os.replace(tmp_path, cache_path)
-                
+
                 self.logger.debug(f"Cache set (disk): {key[:50]}...")
             except Exception as e:
                 self.logger.warning(f"Error saving cache to disk: {str(e)}")
+                # Clean up the partial temp file so it is not orphaned on crash.
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
     
     def invalidate(self, key: str, cache_type: str = "both") -> None:
         """
@@ -199,10 +213,12 @@ class CacheManager:
         if (cache_type in ["disk", "both"]) and self.disk_cache_enabled:
             try:
                 for file_name in os.listdir(self.cache_dir):
-                    if file_name.endswith(".cache"):
+                    # Remove completed cache files and any orphaned temp files
+                    # left behind by an interrupted atomic write.
+                    if file_name.endswith((".cache", ".tmp")):
                         try:
                             os.remove(os.path.join(self.cache_dir, file_name))
-                        except:
+                        except OSError:
                             pass
                 self.logger.debug("Disk cache cleared")
             except Exception as e:
@@ -270,19 +286,20 @@ class CacheManager:
             hashed_key: Hashed cache key
             value: Value to cache
         """
-        # Check if we need to evict items
-        if len(self.memory_cache) >= self.max_memory_items:
-            # Find the oldest item
-            oldest_key = min(
-                self.memory_timestamp.keys(),
-                key=lambda k: self.memory_timestamp.get(k, 0)
-            )
-            self._remove_from_memory(oldest_key)
-        
-        # Add new item
-        self.memory_cache[hashed_key] = value
-        self.memory_timestamp[hashed_key] = time.time()
-        self.logger.debug(f"Cache set (memory): {hashed_key[:8]}...")
+        with self._lock:
+            # Check if we need to evict items
+            if len(self.memory_cache) >= self.max_memory_items:
+                # Find the oldest item
+                oldest_key = min(
+                    self.memory_timestamp.keys(),
+                    key=lambda k: self.memory_timestamp.get(k, 0)
+                )
+                self._remove_from_memory(oldest_key)
+
+            # Add new item
+            self.memory_cache[hashed_key] = value
+            self.memory_timestamp[hashed_key] = time.time()
+            self.logger.debug(f"Cache set (memory): {hashed_key[:8]}...")
     
     def _remove_from_memory(self, hashed_key: str) -> None:
         """
@@ -291,11 +308,12 @@ class CacheManager:
         Args:
             hashed_key: Hashed cache key
         """
-        if hashed_key in self.memory_cache:
-            del self.memory_cache[hashed_key]
-        
-        if hashed_key in self.memory_timestamp:
-            del self.memory_timestamp[hashed_key]
+        with self._lock:
+            if hashed_key in self.memory_cache:
+                del self.memory_cache[hashed_key]
+
+            if hashed_key in self.memory_timestamp:
+                del self.memory_timestamp[hashed_key]
     
     def _remove_from_disk(self, hashed_key: str) -> None:
         """
@@ -310,54 +328,5 @@ class CacheManager:
                 os.remove(cache_path)
             except Exception as e:
                 self.logger.warning(f"Error removing cache file: {str(e)}")
-
-def cached(
-    key_func: Callable | None = None,
-    cache_type: str = "both",
-    max_age: float | None = None,
-    cache_manager: CacheManager | None = None
-) -> Callable:
-    """
-    Decorator for caching function results.
-    
-    Args:
-        key_func: Function to generate cache key from arguments
-        cache_type: Type of cache to use ('memory', 'disk', or 'both')
-        max_age: Maximum age of cached result in seconds
-        cache_manager: CacheManager instance (creates a new one if None)
-        
-    Returns:
-        Decorated function
-    """
-    # Create default cache manager if not provided
-    if cache_manager is None:
-        cache_manager = CacheManager()
-    
-    def decorator(func: Callable) -> Callable:
-        def wrapper(*args, **kwargs) -> Any:
-            # Generate cache key
-            if key_func is not None:
-                cache_key = key_func(*args, **kwargs)
-            else:
-                # Default key is function name and args/kwargs
-                arg_str = str(args) + str(sorted(kwargs.items()))
-                cache_key = f"{func.__module__}.{func.__name__}:{arg_str}"
-            
-            # Try to get from cache
-            cached_result = cache_manager.get(cache_key, cache_type, max_age)
-            if cached_result is not None:
-                return cached_result
-            
-            # Call the original function
-            result = func(*args, **kwargs)
-            
-            # Cache the result
-            cache_manager.set(cache_key, result, cache_type)
-            
-            return result
-        
-        return wrapper
-    
-    return decorator
 
 #fin

@@ -15,8 +15,10 @@ def signal_handler(sig, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 
-# Import CLIs from the cli module
-from transcribe_pkg.cli.commands import (
+# Import CLIs from the cli module.
+# NOTE: deliberately imported AFTER the SIGINT handler is registered above, so
+# importing this module installs clean Ctrl-C handling for `python -m transcribe_pkg`.
+from transcribe_pkg.cli.commands import (  # noqa: E402
     transcribe_command,
     clean_transcript_command,
     create_sentences_command,
